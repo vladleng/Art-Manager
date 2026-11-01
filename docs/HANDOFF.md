@@ -1,35 +1,26 @@
 # Arranger Manager — вход в разработку
 
-## Решение 2026-10-28
+**Статус на 2026-11-01:** самостоятельный Windows/JUCE Manager **0.2.5 принят пользователем**; [PR #66](https://github.com/vladleng/Art-Manager/pull/66) ранее объединён с `main` (merge `1358d4172c63b90340f519b25e4ab7618629ebce`). [Windows Build #109](https://github.com/vladleng/Art-Manager/actions/runs/41313192769) **SUCCESS, 10/10 тестов**; работает поиск/фильтры/сортировка с сохранением вида. Принятая предыдущая база — 0.2.0–0.2.4, включая #54 и #63, офлайн legacy-каталог, заметки и вложенные задачи.
 
-Связь со **Studio Pro упразднена**. Manager развивается в MR-экосистеме: **сначала MR Live, затем MR Studio**. Каноническое решение и проверенные sources/assets: [MR-ECOSYSTEM](MR-ECOSYSTEM.md). [ROADMAP](ROADMAP.md), [CONCEPT](CONCEPT.md), [архитектура](WORKSPACE-ARCHITECTURE.md).
+## Правило merge — отдельно от приёмки
 
-## Текущее состояние, без приписанной приёмки
+**Прямая установка пользователя:** `main` изменять **только** при явной команде «сливай в main» (или равнозначной), **не** после фразы «принимаю». Приёмка позволяет отметить Issue завершённой, но не разрешает слияние. Ветки/PR и Actions разрешены; пользователь отдельно запретил откатывать уже совершённый merge PR #66. Перед каждым следующим merge проверять именно его явное разрешение.
 
-- Main: приняты 0.1e–0.1g, PR #43–#45; последняя принятая версия 0.1g. Workspace schema 1 / catalog 2.
-- Кандидат 0.1h: ветка `workspace-0-1h-general-tasks`, [PR #46](https://github.com/vladleng/Arranger-Manager/pull/46). Общие задачи/описания/чек-поинты, schema 2, раскрывающаяся таблица и действия по ПКМ. Последний функциональный source `9caea5891639bb6ba38ab882ebf19ed7f302ab0d`, [Windows Build #74](https://github.com/vladleng/Arranger-Manager/actions/runs/37249113209) — success, 8/8 тестовых наборов. Пользователь не принимал и не разрешал merge 0.1h.
-- MR-интеграция #48 и удаление legacy reader/Hub/ARA #7 не выполнены. Кандидат визуального внедрения #47 описан ниже; прежняя docs-only актуализация сама не меняла runtime.
+## Текущие незавершённые задачи
 
-## Кандидат MR UDS — #47
+1. [#55-B / 0.2.6](https://github.com/vladleng/Art-Manager/issues/67): шаблоны проектов/задач и Notion-like hover — **серая полоса остаётся, а яркость букв при наведении не меняется**.
+2. [#55-C / 0.2.7](https://github.com/vladleng/Art-Manager/issues/68): экспорт/импорт/recovery с конфликтами ID; перенос прежних блоков страниц в отдельные заметки по явной команде и с backup.
+3. Остаточная ручная QA и доступ к историческим данным [#61](https://github.com/vladleng/Art-Manager/issues/61); автономный workspace [#37](https://github.com/vladleng/Art-Manager/issues/37) и UX [#55](https://github.com/vladleng/Art-Manager/issues/55) остаются открытыми до завершения этих пунктов.
+4. Затем [#38 / 0.3 «Сегодня»](https://github.com/vladleng/Art-Manager/issues/38) → [#39 / 0.4 Календарь](https://github.com/vladleng/Art-Manager/issues/39) → [#40 / 0.5 Timeline](https://github.com/vladleng/Art-Manager/issues/40). Только потом — [MR Live #48](https://github.com/vladleng/Art-Manager/issues/48), затем [MR Studio #49](https://github.com/vladleng/Art-Manager/issues/49); без новых Studio Pro readers/ARA.
 
-Ветка `ui-47-mr-uds` поверх непринятой 0.1h. Внедрены закреплённые MR Manager assets и единый косметический профиль оболочки/таблиц/редакторов/ПКМ; данные/команды/геометрия остаются исходными. [Объём и проверка](MR-UDS-47.md). [PR #50](https://github.com/vladleng/Arranger-Manager/pull/50). [Windows MR Manager UI Build #4](https://github.com/vladleng/Arranger-Manager/actions/runs/40695578817), source `45aa5240d167d95ab1ec0b7cbad5b79b9627e5ed`: Desktop собран и пакет опубликован. Пользовательская визуальная приёмка ожидается; автоматические GUI preview/CTest не требуются для этого косметического среза. #48 не начинается автоматически.
+## Фактическая архитектура и границы
 
-## Уточнение после визуальной проверки #47
+C++20, JUCE 9, Windows Desktop, Workspace schema **2**; `WorkspaceModel` / `Store`, `Commands` / `Queries` / `Controller`, `WorkspaceShell`, `TaskTree`, `BlockEditor`. Задачи имеют стабильные ID, owner, родителя (до восьми уровней по валидатору), статусы, приоритеты и Notes. Обычные страницы сразу показывают задачи, `note` страницы — блоковый редактор; прежние `page.blocks` доступны через ПКМ. Настройки поиска/фильтров/сортировки хранятся в настройках приложения, **не** в JSON workspace. Адаптера MR Live ещё нет.
 
-Пользователь попросил логику страниц/задач как в Notion. В том же PR #50: документный inline editor вместо формы «Блоки», компактная таблица, двойной клик по Notes/названиям, inline создание подзадачи, Enter/Esc/blur и сохранение черновиков при ошибке. [Контракт](NOTION-STYLE-EDITOR.md). Это поведенческое изменение, прежнее освобождение косметики от тестов не применяется; актуальные проверки/пакет фиксируются в #47/PR.
-
-## Следующая работа
-
-1. Уточнения/приёмка 0.1h — только в назначенном объёме; не считать решение сменить экосистему приёмкой PR #46.
-2. [#47](https://github.com/vladleng/Arranger-Manager/issues/47) — дизайн Manager по MR Live / MR UDS, existing manager kit, без параллельной библиотеки и статических пользовательских показаний.
-3. [#7](https://github.com/vladleng/Arranger-Manager/issues/7) — снять legacy Studio Pro зависимость, сохранив локальные данные и backups. Не удалять пользовательские `.song`/`.show`.
-4. [#48](https://github.com/vladleng/Arranger-Manager/issues/48) — новый 0.1i: контракт IDs/владельцев/progress, затем первый MR Live adapter. Native `.mrlive`, browser demo show и layout не взаимозаменяемы. Read-only snapshot и command write-back — разные срезы.
-5. 0.1j — поиск/переносимость/приёмка #37. Затем отдельная MR Studio связь [#49](https://github.com/vladleng/Arranger-Manager/issues/49); план дня/календарь/Timeline/аналитика/GPT #38–#42 сохраняются. Мобильный #35 отложен.
-
-#19 `.show` отменена; writer `.song` и ARA/context bridge не возвращать в roadmap. Исторические PROG/Notes rules сохраняют смысл для старых данных, а не задают будущую интеграцию.
+**Подробно:** [ROADMAP](ROADMAP.md), [WORKSPACE-ARCHITECTURE](WORKSPACE-ARCHITECTURE.md), [MR-ECOSYSTEM](MR-ECOSYSTEM.md), и актуальные Issues. Исторический 0.1e–0.1h и прежняя схема 0.1i/0.1j — зафиксированная история, не план новых билдов.
 
 ## Начало следующего сеанса
 
-Проверить ветку/HEAD/status и назначенный issue. MR-Studio main отстаёт от Live-native/Manager-assets веток; актуальные ревизии и ссылки в MR-ECOSYSTEM. В Live уже есть собственный item organizer: не создавать независимую копию задач. Не приравнивать старый DONE-count progress к рекурсивным процентам Live. Не вводить новый audio backend или прямую конкурентную запись открытого show.
+Проверить ветку/HEAD/status и назначенный issue. Перед адаптером MR Live заново проверить актуальные ветки, native schema, ownership и revisions; старые commit-ссылки в MR-ECOSYSTEM — историческая сверка. В Live уже есть собственный item organizer: не создавать независимую копию задач. Не приравнивать старый DONE-count progress к рекурсивным процентам Live. Не вводить новый audio backend или прямую конкурентную запись открытого show.
 
 Исторический контекст прежнего направления сохранён в [старом HANDOFF](https://github.com/vladleng/Arranger-Manager/blob/17ecf79888dd4182d86682beb0b9fc11feb9cef3/docs/HANDOFF.md) и документах HYBRID/HUB/ARA. Их старые «следующий шаг»/«DAW сохраняется» не переопределяют решение 2026-10-28.
