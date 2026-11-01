@@ -582,7 +582,8 @@ juce::var TaskTree::getDragSourceDescription(const juce::SparseSet<int>& selecte
     if (!parent || arranger::WorkspaceQueries::taskArchived(model, parent->id)) return {};
     if (row.checkpointId.isNotEmpty())
         return "manager-checkpoint|" + parent->id + "|" + row.checkpointId;
-    return "manager-task|" + parent->id + "|" + parent->ownerPageId + "|" + parent->parentTaskId;
+    return "manager-task|" + parent->id + "|" + parent->ownerPageId + "|"
+        + (parent->parentTaskId.isEmpty() ? juce::String("root") : parent->parentTaskId);
 }
 bool TaskTree::isInterestedInDragSource(const SourceDetails& source)
 {
@@ -673,7 +674,8 @@ void TaskTree::commitDrop(const juce::String& description, const Target& target)
     }
     const auto owner = destination->ownerPageId;
     apply([&](arranger::WorkspaceCommands& cmd)
-    { return cmd.moveTask(args[1], args[2], args[3], owner, parent, before); });
+    { return cmd.moveTask(args[1], args[2], args[3] == "root" ? juce::String() : args[3],
+        owner, parent, before); });
 }
 void TaskTree::paintOverChildren(juce::Graphics& g) { drawDropIndicator(g); }
 void TaskTree::drawDropIndicator(juce::Graphics& g)
