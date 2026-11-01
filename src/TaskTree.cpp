@@ -563,7 +563,7 @@ int TaskTree::headerDividerAt(int x) const
 }
 juce::var TaskTree::getDragSourceDescription(const juce::SparseSet<int>& selected)
 {
-    if (selected.size() != 1 || editing) return {};
+    if (!manualOrder || selected.size() != 1 || editing) return {};
     const auto index = selected.getRange(0).getStart();
     if (index < 0 || index >= getNumRows()) return {};
     const auto row = rows[static_cast<size_t>(index)];
@@ -577,6 +577,7 @@ juce::var TaskTree::getDragSourceDescription(const juce::SparseSet<int>& selecte
 }
 bool TaskTree::isInterestedInDragSource(const SourceDetails& source)
 {
+    if (!manualOrder) return false;
     return source.description.toString().startsWith("manager-task|")
         || source.description.toString().startsWith("manager-checkpoint|");
 }
