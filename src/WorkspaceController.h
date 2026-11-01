@@ -2,6 +2,7 @@
 #include "WorkspaceCommands.h"
 #include "WorkspaceStore.h"
 #include <functional>
+#include <optional>
 
 namespace arranger
 {
