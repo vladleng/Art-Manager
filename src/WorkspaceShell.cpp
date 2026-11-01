@@ -615,23 +615,28 @@ void WorkspaceShell::loadTaskViewSettings(const juce::String& saved)
     taskViews.clear();
     const auto raw = juce::JSON::parse(saved);
     if (auto* object = raw.getDynamicObject())
-    {
-        const auto& properties = object->getProperties();
-        for (int i = 0; i < properties.size(); ++i)
-        {
-            const auto key = properties.getName(i).toString();
-            if (key == "view:tasks" || key.startsWith("page:"))
-                taskViews[key] = arranger::decodeTaskView(properties.getValueAt(i).toString());
-        }
-    }
+        if (auto* views = object->getProperty("views").getArray())
+            for (const auto& item : *views)
+            {
+                const auto key = item.getProperty("key", {}).toString();
+                if (key == "view:tasks" || key.startsWith("page:"))
+                    taskViews[key] = arranger::decodeTaskView(item.getProperty("options", {}).toString());
+            }
 }
 void WorkspaceShell::saveTaskViewSettings()
 {
     if (!persistTaskViews) return;
     auto result = std::make_unique<juce::DynamicObject>();
+    juce::Array<juce::var> views;
     for (const auto& [key, options] : taskViews)
         if (key == "view:tasks" || key.startsWith("page:"))
-            result->setProperty(juce::Identifier(key), arranger::encodeTaskView(options));
+        {
+            auto item = std::make_unique<juce::DynamicObject>();
+            item->setProperty("key", key);
+            item->setProperty("options", arranger::encodeTaskView(options));
+            views.add(juce::var(item.release()));
+        }
+    result->setProperty("views", views);
     persistTaskViews(juce::JSON::toString(juce::var(result.release())));
 }
 void WorkspaceShell::updateTaskProjection()
