@@ -22,7 +22,8 @@ int main()
     old.catalog.addSong(missingSong.getFullPathName());
     const auto songTask = old.catalog.addTask(old.catalog.songs[0].path, "DAW task");
     old.catalog.addCheckpoint(old.catalog.songs[0].path, songTask, "DAW checkpoint");
-    old.catalog.setLocalNote(old.catalog.songs[0].path, "task:" + songTask, "DAW note");
+    // Preserve the production key format (task:<length>:<id>), not a guessed "task:<id>" key.
+    old.catalog.setLocalNote(old.catalog.songs[0].path, taskNoteKey(songTask), "DAW note");
     old.catalog.setLocalNote(old.catalog.songs[0].path, "song:notes", juce::String::fromUTF8("Локальная заметка"));
     old.catalog.setSongStatus(old.catalog.songs[0].path, Status::wip);
     old.catalog.setSongType(old.catalog.songs[0].path, SongType::rough);
@@ -56,7 +57,7 @@ int main()
     REQUIRE(controller.execute([&](WorkspaceCommands& c) {
         return c.updateTaskText(archivedSongTask, {}, TaskTextField::notes, "DAW note", "Offline note edit");
     }).wasOk(), "Editing a local legacy task required a Studio Pro project");
-    REQUIRE(model.catalog.localNote(model.catalog.songs[0].path, "task:" + songTask) == "Offline note edit",
+    REQUIRE(model.catalog.localNote(model.catalog.songs[0].path, taskNoteKey(songTask)) == "Offline note edit",
         "Local legacy Notes were not persisted");
     juce::String first, second, cp;
     REQUIRE(controller.execute([&](WorkspaceCommands& c) { return c.createTask(root, juce::String::fromUTF8("Публикация"), first); }).wasOk(), "Create task");
@@ -134,7 +135,7 @@ int main()
     REQUIRE(model.catalog.toJson() == catalog && model.validate().wasOk(), "Dangling references or changed DAW");
     WorkspaceStore reload(file); WorkspaceModel loaded;
     REQUIRE(reload.load({}, {}, loaded).wasOk() && loaded.toJson() == model.toJson(), "Task restart/round trip");
-    REQUIRE(!missingSong.existsAsFile() && loaded.catalog.localNote(loaded.catalog.songs[0].path, "task:" + songTask) == "Offline note edit"
+    REQUIRE(!missingSong.existsAsFile() && loaded.catalog.localNote(loaded.catalog.songs[0].path, taskNoteKey(songTask)) == "Offline note edit"
         && loaded.catalog.songs[0].tasks[0].id == songTask
         && WorkspaceQueries::legacyCatalogSummary(loaded).contains(juce::String::fromUTF8("Локальная заметка")),
         "Restart lost offline legacy task/Notes or accessed missing .song");
