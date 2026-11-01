@@ -12,7 +12,8 @@ public:
     HubWindow(arranger::WorkspaceModel& workspace, std::function<void(int)> action,
         WorkspaceShell::Execute execute, juce::String selectedView,
         std::function<void(juce::String)> persistView,
-        juce::String savedColumns, std::function<void(juce::String)> persistColumns)
+        juce::String savedColumns, std::function<void(juce::String)> persistColumns,
+        juce::String savedTaskViews, std::function<void(juce::String)> persistTaskViews)
         : juce::DocumentWindow("Arranger Manager " + juce::String(ARRANGER_MANAGER_VERSION), mr::ManagerTheme::titleBarColour(),
               juce::DocumentWindow::allButtons), workspaceAction(std::move(action))
     {
@@ -27,7 +28,8 @@ public:
         setMenuBar(this);
         setContentOwned(new WorkspaceShell(workspace, std::move(execute),
             std::move(selectedView), std::move(persistView), std::move(savedColumns),
-            std::move(persistColumns)), true);
+            std::move(persistColumns), std::move(savedTaskViews),
+            std::move(persistTaskViews)), true);
         setResizable(true, false);
         setResizeLimits(1240, 760, 2300, 1600);
         centreWithSize(1480, 900);
@@ -187,6 +189,15 @@ private:
                 if (auto* user = settings.getUserSettings())
                 {
                     user->setValue("taskColumnWidths", widths);
+                    user->saveIfNeeded();
+                }
+            },
+            settings.getUserSettings()->getValue("taskViewOptions"),
+            [this](juce::String json)
+            {
+                if (auto* user = settings.getUserSettings())
+                {
+                    user->setValue("taskViewOptions", json);
                     user->saveIfNeeded();
                 }
             });
