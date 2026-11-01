@@ -14,9 +14,11 @@ void rowBackground(juce::Graphics& g, int width, int height, bool selected)
 
 WorkspaceShell::WorkspaceShell(arranger::WorkspaceModel& data,
     Execute executeCommand, juce::String selectedView, std::function<void(juce::String)> saveView,
-    juce::String savedColumns, std::function<void(juce::String)> saveColumns)
+    juce::String savedColumns, std::function<void(juce::String)> saveColumns,
+    juce::String savedTaskViews, std::function<void(juce::String)> saveTaskViews)
     : model(data), runCommand(std::move(executeCommand)),
       persistView(std::move(saveView)), viewKey(std::move(selectedView)),
+      persistTaskViews(std::move(saveTaskViews)),
       tasks(model, runCommand, [this] { return flushEdits(); },
           [this](arranger::TaskReference ref) { openTask(ref); }, [this] { refresh(); },
           [this](juce::String id) { archiveTask(id); }, [this] { promptTask(); },
@@ -53,6 +55,36 @@ WorkspaceShell::WorkspaceShell(arranger::WorkspaceModel& data,
         list->setMultipleSelectionEnabled(false);
     }
     addAndMakeVisible(tasks);
+    addAndMakeVisible(searchBox);
+    for (auto* button : {&filterButton, &sortButton, &clearButton})
+    {
+        addAndMakeVisible(button);
+        button->setColour(juce::TextButton::buttonColourId, mr::colour(mr::tokens::panel));
+        button->setColour(juce::TextButton::textColourOffId, mr::colour(mr::tokens::meta));
+    }
+    searchBox.setTextToShowWhenEmpty(text("⌕ Поиск по задачам, страницам и заметкам"),
+        mr::colour(mr::tokens::muted));
+    searchBox.setColour(juce::TextEditor::backgroundColourId, mr::colour(mr::tokens::panel));
+    searchBox.setColour(juce::TextEditor::textColourId, mr::colour(mr::tokens::bright));
+    searchBox.setColour(juce::TextEditor::outlineColourId, mr::colour(mr::tokens::outline));
+    searchBox.onTextChange = [this]
+    {
+        if (applyingView) return;
+        auto& options = taskViews[taskViewKey()];
+        options.search = searchBox.getText().substring(0, 256);
+        saveTaskViewSettings();
+        updateTaskProjection();
+    };
+    filterButton.onClick = [this] { showFilterMenu(); };
+    sortButton.onClick = [this] { showSortMenu(); };
+    clearButton.onClick = [this]
+    {
+        if (!flushEdits()) return;
+        taskViews[taskViewKey()] = {};
+        saveTaskViewSettings();
+        updateTaskProjection();
+    };
+    loadTaskViewSettings(savedTaskViews);
     addAndMakeVisible(blockEditor);
     addAndMakeVisible(legacySummary);
     legacySummary.setReadOnly(true);
@@ -108,6 +140,25 @@ void WorkspaceShell::resized()
     content.removeFromTop(8);
     // Note pages and task pages are separate kinds; no redundant two-tab UI.
     content.removeFromTop(6);
+    // Notion-style minimal table toolbar, not part of the data table columns.
+    const auto taskToolbar = tasks.isVisible() && viewKey != "view:legacy";
+    if (taskToolbar)
+    {
+        auto toolbar = content.removeFromTop(36);
+        auto right = toolbar.removeFromRight(260);
+        clearButton.setBounds(right.removeFromRight(62).reduced(2));
+        sortButton.setBounds(right.removeFromRight(96).reduced(2));
+        filterButton.setBounds(right.reduced(2));
+        searchBox.setBounds(toolbar.reduced(2, 3));
+        content.removeFromTop(4);
+    }
+    else
+    {
+        searchBox.setBounds({});
+        filterButton.setBounds({});
+        sortButton.setBounds({});
+        clearButton.setBounds({});
+    }
     if (viewKey == "view:legacy")
         legacySummary.setBounds(content.removeFromTop(juce::jmin(220, content.getHeight() / 2)).reduced(0, 4));
     else
@@ -159,7 +210,7 @@ void WorkspaceShell::refresh()
         std::erase_if(taskReferences, [&](const auto& ref) { return ref.ownerPageId != selectedPage(); });
     else if (viewKey == "view:legacy")
         std::erase_if(taskReferences, [](const auto& ref) { return ref.songId.isEmpty(); });
-    tasks.setTasks(taskReferences);
+    updateTaskProjection();
     archive.updateContent();
     archive.deselectAllRows();
     for (int i = 0; i < static_cast<int>(archived.size()); ++i)
