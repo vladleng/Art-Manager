@@ -122,6 +122,38 @@ int main()
     REQUIRE(tree.columnSettings().isNotEmpty(), "Column settings unavailable");
     REQUIRE(snapshot(tree, "task-table-compact.png"), "Task snapshot");
 
+    // Real table drop target dispatch: a nested task is dropped inside another
+    // task row, not directly sent to a domain command by this test.
+    arranger::WorkspaceModel dragModel;
+    arranger::WorkspaceCommands dragCmd(dragModel);
+    juce::String dragPage, from, to, nested;
+    REQUIRE(dragCmd.createPage({}, "Test page", dragPage).wasOk(), "Drag owner page");
+    REQUIRE(dragCmd.createTask(dragPage, "Parent A", from).wasOk(), "Drag source root");
+    REQUIRE(dragCmd.createTask(dragPage, "Parent B", to).wasOk(), "Drag destination root");
+    REQUIRE(dragCmd.createSubtask(from, "Nested task", nested).wasOk(), "Drag child");
+    TaskTree dragTree(dragModel, [&](const auto& action) { return action(dragCmd); },
+        [] { return true; }, [](arranger::TaskReference) {}, [] {}, [](juce::String) {});
+    dragTree.setLookAndFeel(&theme);
+    dragTree.setSize(1180, 360);
+    dragTree.setTasks(arranger::WorkspaceQueries::allTasks(dragModel));
+    auto* dragList = dynamic_cast<juce::ListBox*>(dragTree.getChildComponent(0));
+    REQUIRE(dragList && dragList->getListBoxModel(), "Drag list");
+    dragList->getListBoxModel()->listBoxItemClicked(0, click(*dragList, 10));
+    REQUIRE(dragList->getListBoxModel()->getNumRows() == 4, "Nested drag rows");
+    const auto targetRow = dragList->getRowPosition(3, true);
+    const auto targetPoint = juce::Point<int>(200, dragList->getY() + targetRow.getY()
+        + dragList->getRowHeight() / 2);
+    const auto descriptor = "manager-task|" + nested + "|" + dragPage + "|" + from;
+    const juce::DragAndDropTarget::SourceDetails drop {juce::var(descriptor), dragList, targetPoint};
+    REQUIRE(dragTree.isInterestedInDragSource(drop), "Table ignored task drag source");
+    dragTree.itemDragMove(drop);
+    dragTree.itemDropped(drop);
+    REQUIRE(dragModel.findTask(nested)->parentTaskId == to,
+        "Dropping a nested row did not reparent the actual task");
+    dragTree.setLookAndFeel(nullptr);
+
+
+
     arranger::BlockEditorSession::Blocks saved {{"heading-id","heading",{},{},false,juce::String::fromUTF8("Материалы проекта")},
         {"paragraph-id","text",juce::String::fromUTF8("Здесь можно писать описание, идеи и заметки прямо на странице."),{},false,{}}};
     bool pageWrites=true;
