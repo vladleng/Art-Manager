@@ -1,6 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
-#include "HubEditor.h"
+#include "MRManagerStyle.h"
 #include "WorkspaceCommands.h"
 #include "BlockEditor.h"
 #include "TaskDetails.h"
@@ -9,7 +9,7 @@ class WorkspaceShell final : public juce::Component
 {
 public:
     using Execute = std::function<juce::Result(const arranger::WorkspaceAction&)>;
-    WorkspaceShell(arranger::WorkspaceModel&, std::unique_ptr<HubEditor>, Execute,
+    WorkspaceShell(arranger::WorkspaceModel&, Execute,
         juce::String selectedView, std::function<void(juce::String)> saveView);
     ~WorkspaceShell() override;
     void paint(juce::Graphics&) override;
@@ -55,7 +55,6 @@ private:
 
     mr::ManagerTheme theme;
     arranger::WorkspaceModel& model;
-    std::unique_ptr<HubEditor> hub;
     Execute runCommand;
     std::function<void(juce::String)> persistView;
     juce::String viewKey;
@@ -68,6 +67,7 @@ private:
     juce::ListBox nav { "Pages", &navModel }, archive { "Archive", &archiveModel };
     TaskTree tasks;
     juce::Label brand, title, breadcrumb, description, empty;
+    juce::TextEditor legacySummary; // Offline, read-only catalog archive; no DAW reader.
     juce::TextButton addPage, addChild, rename, move, archiveButton, blocksTab, tasksTab;
     BlockEditor blockEditor;
     std::unique_ptr<TaskDetails> taskDetails;
