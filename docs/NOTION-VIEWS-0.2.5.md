@@ -1,6 +1,6 @@
 # #65 / 0.2.5 — Notion-inspired search / filters / sorts
 
-Status: **source candidate, not accepted**. Parent #55 / #37. Code branch `feature/65-notion-task-views-0.2.5`; merge only by explicit user approval.
+Status: **source candidate, Windows CI requested, not accepted**. Parent #55 / #37. Code branch `feature/65-notion-task-views-0.2.5`; merge only by explicit user approval.
 
 ## Reference and visual contract
 
