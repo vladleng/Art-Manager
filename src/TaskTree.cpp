@@ -595,7 +595,7 @@ std::optional<TaskTree::Target> TaskTree::targetAt(juce::Point<int> point, bool 
     const auto local = list.getLocalPoint(this, point);
     if (!list.getLocalBounds().contains(local)) return {};
     const int index = list.getRowContainingPosition(local.x, local.y);
-    if (index < 0 || index >= getNumRows()) return {};
+    if (index < 0 || index >= static_cast<int>(rows.size())) return {};
     const auto row = rows[static_cast<size_t>(index)];
     if (row.reference.songId.isNotEmpty()) return {};
     const auto* task = arranger::WorkspaceQueries::generalTask(model, row.reference);
