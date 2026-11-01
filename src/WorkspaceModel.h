@@ -136,7 +136,7 @@ struct WorkspaceModel
         for (const auto& page : pages)
         {
             if (!addId(page.id) || page.title.trim().isEmpty()
-                || (page.kind != "page" && page.kind != "song" && page.kind != "dawFolder"))
+                || (page.kind != "page" && page.kind != "note" && page.kind != "song" && page.kind != "dawFolder"))
                 return fail("Invalid or duplicate page.");
             pageIds.insert(page.id);
             for (const auto& block : page.blocks)
