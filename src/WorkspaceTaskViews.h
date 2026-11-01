@@ -60,13 +60,13 @@ inline bool taskMatchesView(const WorkspaceModel& model, const TaskReference& re
 {
     if (ref.songId.isNotEmpty())
     {
-        if (!options.status.isEmpty() && label(WorkspaceQueries::taskStatus(model, ref)) != options.status) return false;
+        if (!options.status.isEmpty() && juce::String(label(WorkspaceQueries::taskStatus(model, ref))) != options.status) return false;
         if (options.priority != 0) return false; // Legacy tasks have no priority.
     }
     else if (const auto* task = WorkspaceQueries::generalTask(model, ref))
     {
         if (WorkspaceQueries::taskArchived(model, task->id)) return false;
-        if (!options.status.isEmpty() && label(task->properties.status) != options.status) return false;
+        if (!options.status.isEmpty() && juce::String(label(task->properties.status)) != options.status) return false;
         if (options.priority != 0 && task->properties.priority != options.priority) return false;
     }
     else return false;
