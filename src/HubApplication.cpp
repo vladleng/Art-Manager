@@ -154,6 +154,7 @@ private:
                                 return;
                             }
                             window.reset();
+                            controller.reset(); // Do not carry Undo history across a restored workspace.
                             const auto loaded = store->load({}, {}, workspace);
                             if (loaded.failed()) failStartup(loaded.getErrorMessage());
                             else openMainWindow();
