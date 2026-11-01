@@ -17,10 +17,18 @@ int main()
     TestDirectory dir;
     const auto file = dir.path.getChildFile("workspace.json");
     WorkspaceModel old;
-    old.catalog.addSong("C:\\Songs\\First.song");
+    const auto missingSong = dir.path.getChildFile("unavailable.song");
+    REQUIRE(!missingSong.existsAsFile(), "Legacy .song fixture unexpectedly exists");
+    old.catalog.addSong(missingSong.getFullPathName());
     const auto songTask = old.catalog.addTask(old.catalog.songs[0].path, "DAW task");
     old.catalog.addCheckpoint(old.catalog.songs[0].path, songTask, "DAW checkpoint");
-    old.catalog.setLocalNote(old.catalog.songs[0].path, "task:" + songTask, "DAW note");
+    // Preserve the production key format (task:<length>:<id>), not a guessed "task:<id>" key.
+    old.catalog.setLocalNote(old.catalog.songs[0].path, taskNoteKey(songTask), "DAW note");
+    old.catalog.setLocalNote(old.catalog.songs[0].path, "song:notes", juce::String::fromUTF8("Локальная заметка"));
+    old.catalog.setSongStatus(old.catalog.songs[0].path, Status::wip);
+    old.catalog.setSongType(old.catalog.songs[0].path, SongType::rough);
+    REQUIRE(WorkspaceQueries::legacyCatalogSummary(old).contains(juce::String::fromUTF8("Локальная заметка")),
+        "Missing .song prevented showing local catalog notes");
     old.reconcileCatalogPages();
     WorkspaceCommands original(old); juce::String root, child;
     REQUIRE(original.createPage({}, "Root", root).wasOk() && original.createPage(root, "Child", child).wasOk(), "Pages");
@@ -34,11 +42,23 @@ int main()
     REQUIRE(store.load("invalid stale settings", {}, model).wasOk(), "Schema 1 migration");
     REQUIRE(store.schemaOneFile().loadFileAsString() == source && store.backupFile().loadFileAsString() == source, "Exact schema 1 backup");
     REQUIRE(static_cast<int>(juce::JSON::parse(file.loadFileAsString()).getProperty("schemaVersion", 0)) == 2, "Schema 2 not written");
+    REQUIRE(!missingSong.existsAsFile() && model.catalog.songs[0].id == old.catalog.songs[0].id
+        && model.catalog.songs[0].pageId == old.catalog.songs[0].pageId
+        && model.catalog.songs[0].status == Status::wip
+        && model.catalog.songs[0].type == SongType::rough
+        && WorkspaceQueries::legacyCatalogSummary(model).contains(juce::String::fromUTF8("Локальная заметка")),
+        "Offline archive lost song identity, status, type or Notes");
     REQUIRE(model.id == old.id && model.revision == 42 && model.catalog.toJson() == old.catalog.toJson()
         && model.findPage(root)->blocks == old.findPage(root)->blocks && model.tasks.empty(), "Migration changed data");
     WorkspaceStore restart(file); WorkspaceModel restarted;
     REQUIRE(restart.load({}, {}, restarted).wasOk() && restarted.toJson() == model.toJson(), "Repeated load remigrated");
     WorkspaceController controller(model, store);
+    const TaskReference archivedSongTask {model.catalog.songs[0].id, model.catalog.songs[0].pageId, songTask};
+    REQUIRE(controller.execute([&](WorkspaceCommands& c) {
+        return c.updateTaskText(archivedSongTask, {}, TaskTextField::notes, "DAW note", "Offline note edit");
+    }).wasOk(), "Editing a local legacy task required a Studio Pro project");
+    REQUIRE(model.catalog.localNote(model.catalog.songs[0].path, taskNoteKey(songTask)) == "Offline note edit",
+        "Local legacy Notes were not persisted");
     juce::String first, second, cp;
     REQUIRE(controller.execute([&](WorkspaceCommands& c) { return c.createTask(root, juce::String::fromUTF8("Публикация"), first); }).wasOk(), "Create task");
     REQUIRE(controller.execute([&](WorkspaceCommands& c) { return c.createTask(child, "Other", second); }).wasOk(), "Second task");
@@ -115,6 +135,10 @@ int main()
     REQUIRE(model.catalog.toJson() == catalog && model.validate().wasOk(), "Dangling references or changed DAW");
     WorkspaceStore reload(file); WorkspaceModel loaded;
     REQUIRE(reload.load({}, {}, loaded).wasOk() && loaded.toJson() == model.toJson(), "Task restart/round trip");
+    REQUIRE(!missingSong.existsAsFile() && loaded.catalog.localNote(loaded.catalog.songs[0].path, taskNoteKey(songTask)) == "Offline note edit"
+        && loaded.catalog.songs[0].tasks[0].id == songTask
+        && WorkspaceQueries::legacyCatalogSummary(loaded).contains(juce::String::fromUTF8("Локальная заметка")),
+        "Restart lost offline legacy task/Notes or accessed missing .song");
     REQUIRE(store.schemaOneFile().loadFileAsString() == source, "Permanent migration backup changed");
     auto bad = model; bad.tasks[0].ownerPageId = "missing";
     REQUIRE(bad.validate().failed(), "Dangling task owner accepted");

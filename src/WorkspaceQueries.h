@@ -125,6 +125,27 @@ struct WorkspaceQueries
         return {done, total};
     }
 
+    // Offline view of retained Studio Pro catalog metadata. No .song file is opened.
+    // These records remain in workspace JSON with their original IDs and Notes keys.
+    static juce::String legacyCatalogSummary(const WorkspaceModel& model)
+    {
+        auto text = [](const char* value) { return juce::String::fromUTF8(value); };
+        juce::String summary;
+        if (model.catalog.songs.empty()) return text("Сохранённых записей песен нет.");
+        for (const auto& song : model.catalog.songs)
+        {
+            const auto* page = model.findPage(song.pageId);
+            const auto title = page != nullptr ? page->title : juce::File(song.path).getFileNameWithoutExtension();
+            summary << title << "  [" << label(song.status) << "]\n";
+            summary << text("Исходный путь (справочно): ") << song.path << "\n";
+            summary << text("Локальных задач: ") << static_cast<int>(song.tasks.size()) << "\n";
+            for (const auto& note : song.localNotes)
+                summary << text("Заметка [") << note.key << "]: " << note.text << "\n";
+            summary << "\n";
+        }
+        return summary;
+    }
+
     static std::vector<TaskReference> allTasks(const WorkspaceModel& model)
     {
         std::vector<TaskReference> result;
