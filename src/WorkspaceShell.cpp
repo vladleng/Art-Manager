@@ -516,6 +516,7 @@ void WorkspaceShell::itemDropped(const SourceDetails& source)
     const auto* task = model.findTask(fields[1]);
     if (!task || arranger::WorkspaceQueries::taskArchived(model, task->id)) return;
     if (execute([&](arranger::WorkspaceCommands& commands)
-        { return commands.moveTask(fields[1], fields[2], fields[3], destination, {}); }))
+        { return commands.moveTask(fields[1], fields[2], fields[3] == "root" ? juce::String() : fields[3],
+            destination, {}); }))
         select("pageTasks:" + destination);
 }
