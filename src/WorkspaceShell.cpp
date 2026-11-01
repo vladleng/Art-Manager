@@ -188,29 +188,30 @@ void WorkspaceShell::select(const juce::String& key)
 void WorkspaceShell::showDetails()
 {
     const bool legacy = viewKey == "view:legacy", allTasks = viewKey == "view:tasks", archivedView = viewKey == "view:archive";
-    const bool pageTasks = viewKey.startsWith("pageTasks:");
+    const bool oldBlocks = viewKey.startsWith("pageBlocks:");
     std::optional<arranger::WorkspacePage> page;
     if (const auto* found = model.findPage(selectedPage())) page = *found;
     std::optional<arranger::WorkspaceTask> task;
     if (viewKey.startsWith("task:")) if (const auto* found = model.findTask(viewKey.substring(5))) task = *found;
-    const bool ordinary = page && page->kind == "page", taskView = task.has_value();
-    tasks.setVisible(allTasks || legacy || (ordinary && pageTasks));
+    const bool ordinary = page && page->kind == "page";
+    const bool notePage = page && page->kind == "note";
+    const bool taskView = task.has_value();
+    const bool showBlocks = notePage || (ordinary && oldBlocks);
+    tasks.setVisible(allTasks || legacy || (ordinary && !oldBlocks));
     legacySummary.setVisible(legacy);
     archive.setVisible(archivedView);
     taskDetails->setVisible(taskView);
     for (auto* component : std::initializer_list<juce::Component*>{ &title, &breadcrumb, &description }) component->setVisible(true);
     for (auto* button : { &addChild, &rename, &move, &archiveButton }) button->setVisible(false);
-    for (auto* button : { &blocksTab, &tasksTab }) button->setVisible(ordinary);
-    blocksTab.setToggleState(ordinary && !pageTasks, juce::dontSendNotification);
-    tasksTab.setToggleState(ordinary && pageTasks, juce::dontSendNotification);
-    blockEditor.setVisible(ordinary && !pageTasks);
-    if (ordinary && !pageTasks)
+    blockEditor.setVisible(showBlocks);
+    if (showBlocks)
     {
         const auto pageId = page->id;
         blockEditor.bind(pageId, [this, pageId]() -> std::optional<arranger::BlockEditorSession::Blocks>
         {
             const auto* current = model.findPage(pageId);
-            if (!current || current->kind != "page" || arranger::WorkspaceQueries::isArchived(model, pageId)) return {};
+            if (!current || !arranger::WorkspaceQueries::isWorkspacePage(*current)
+                || arranger::WorkspaceQueries::isArchived(model, pageId)) return {};
             return current->blocks;
         }, [this, pageId](const auto& expected, const auto& blocks)
         {
@@ -248,8 +249,14 @@ void WorkspaceShell::showDetails()
         int count = 0;
         for (const auto& item : model.tasks)
             if (item.ownerPageId == page->id && !arranger::WorkspaceQueries::taskArchived(model, item.id)) ++count;
-        tasksTab.setButtonText(text("Задачи (") + juce::String(count) + ")");
-        description.setText(pageTasks ? juce::String(count) + text(" задач") : text("Описание и материалы страницы"), juce::dontSendNotification);
+        description.setText(oldBlocks ? text("Ранее сохранённые материалы страницы")
+            : juce::String(count) + text(" задач"), juce::dontSendNotification);
+    }
+    else if (notePage)
+    {
+        breadcrumb.setText(arranger::WorkspaceQueries::breadcrumb(model, page->id), juce::dontSendNotification);
+        title.setText(page->title, juce::dontSendNotification);
+        description.setText(text("Заметки на полях"), juce::dontSendNotification);
     }
     else if (taskView)
     {
