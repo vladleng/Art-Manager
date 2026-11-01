@@ -7,6 +7,8 @@ on:
 
 jobs:
   build:
+    # Scoped cosmetic branch has its own Desktop-only build; other branches keep full CI.
+    if: github.head_ref != 'ui-47-mr-uds'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

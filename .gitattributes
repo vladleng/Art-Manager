@@ -1,0 +1,5 @@
+# Preserve exact pinned upstream bytes on Windows as well as Linux.
+assets/ui/mr-uds/** -text
+# Deterministic generated C++ resource and offline generator.
+src/MRManagerAssets.h text eol=lf
+tools/embed_mr_manager_assets.py text eol=lf

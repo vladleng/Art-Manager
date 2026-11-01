@@ -1,4 +1,5 @@
 #include "TaskDetails.h"
+#include "MRManagerStyle.h"
 namespace
 {
 juce::String tr(const char* value) { return juce::String::fromUTF8(value); }
@@ -40,12 +41,12 @@ TaskDetails::TaskDetails(arranger::WorkspaceModel& data, Execute run,
     }
     for (auto* label : { &propertiesLabel, &noteLabel, &cpLabel, &feedback })
     {
-        addAndMakeVisible(label); label->setColour(juce::Label::textColourId, juce::Colour(0xffb8c5d5));
+        addAndMakeVisible(label); label->setColour(juce::Label::textColourId, mr::colour(mr::tokens::meta));
     }
-    propertiesLabel.setText(tr("Свойства задачи · правый клик — сохранить, перечитать, к странице, архив"), juce::dontSendNotification);
+    propertiesLabel.setText(tr("Свойства задачи"), juce::dontSendNotification);
     propertiesLabel.setInterceptsMouseClicks(false, false);
     noteLabel.setInterceptsMouseClicks(false, false);
-    noteLabel.setText("Notes", juce::dontSendNotification);
+    noteLabel.setText(tr("Заметки"), juce::dontSendNotification);
     cpLabel.setText(tr("Чек-поинты"), juce::dontSendNotification);
     addAndMakeVisible(checkpoints);
     cpLabel.setInterceptsMouseClicks(false, false);
@@ -108,7 +109,7 @@ juce::Result TaskDetails::flush()
             if (changed) changed(id);
         }
     }
-    const auto saved = description.flush(); setStatus(saved); return saved;
+    auto saved = description.flush(); if (saved.wasOk()) saved = checkpoints.flush(); setStatus(saved); return saved;
 }
 juce::Result TaskDetails::bind(const juce::String& id)
 {
@@ -163,8 +164,8 @@ void TaskDetails::refreshCheckpoints()
     if (const auto* task = model.findTask(taskId))
     {
         const auto progress = arranger::WorkspaceQueries::taskProgress(*task);
-        cpLabel.setText(tr("Чек-поинты: ") + juce::String(progress.first) + "/" + juce::String(progress.second)
-            + tr(" · правый клик — действия задачи и добавление чек-поинта"), juce::dontSendNotification);
+        cpLabel.setText(tr("Подзадачи: ") + juce::String(progress.first) + "/" + juce::String(progress.second)
+            + juce::String(), juce::dontSendNotification);
         refs.push_back({{}, task->ownerPageId, taskId});
     }
     checkpoints.setTasks(std::move(refs), true);
@@ -178,7 +179,7 @@ void TaskDetails::mouseDown(const juce::MouseEvent& event)
             checkpoints.showTaskMenu({{}, task->ownerPageId, taskId}, event.getScreenPosition());
         return;
     }
-    juce::PopupMenu menu;
+    juce::PopupMenu menu; menu.setLookAndFeel(&getLookAndFeel());
     menu.addItem(1, tr("Сохранить")); menu.addItem(2, tr("Перечитать свойства"));
     menu.addItem(3, tr("К странице")); menu.addSeparator(); menu.addItem(4, tr("Архивировать задачу"));
     juce::Component::SafePointer<TaskDetails> safe(this);

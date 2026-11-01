@@ -2,41 +2,38 @@
 #include <juce_gui_extra/juce_gui_extra.h>
 #include "BlockEditorSession.h"
 
-// Reusable UI; document ownership/storage are supplied through callbacks.
-class BlockEditor final : public juce::Component, private juce::Timer,
-    private juce::ListBoxModel, private juce::KeyListener
+// Document UI with inline blocks; persistence/history remain in the existing session.
+class BlockEditor final : public juce::Component, private juce::Timer, private juce::KeyListener
 {
 public:
     using Session = arranger::BlockEditorSession;
     BlockEditor();
+    ~BlockEditor() override;
     juce::Result bind(const juce::String&, Session::Read, Session::Write);
     juce::Result flush();
+    juce::Result undo();
+    juce::Result redo();
     void paint(juce::Graphics&) override;
     void resized() override;
 private:
-    int getNumRows() override;
-    void paintListBoxItem(int, juce::Graphics&, int, int, bool) override;
-    void selectedRowsChanged(int) override;
+    struct Row;
     bool keyPressed(const juce::KeyPress&, juce::Component*) override;
     void timerCallback() override;
-    void showBlock();
-    void refreshRows(bool showFields);
-    void stageFields();
-    void addBlock();
-    void deleteBlock();
-    void moveBlock(int);
-    void history(bool redo);
+    void capture();
+    void refresh(const juce::String& focusId = {});
+    void layoutRows();
+    void addAfter(const juce::String&, const juce::String& type = "text", const juce::String& content = {});
+    void menu(const juce::String&, bool slash = false);
+    juce::Result history(bool redo);
     void updateStatus(const juce::Result&);
     static juce::String tr(const char*);
     Session session;
-    juce::String boundId, selectedId, fieldsId;
-    int selected = -1;
+    juce::String boundId;
     bool loading = false;
-    juce::ListBox list { "Blocks", this };
-    juce::ComboBox newKind, kind;
-    juce::TextButton add, remove, up, down, undoButton, redoButton, saveButton, reloadButton, openLink;
-    juce::Label nameLabel, typeLabel, textLabel, urlLabel, status, hint;
-    juce::TextEditor nameField, textField, urlField;
-    juce::ToggleButton checked;
+    juce::Viewport viewport;
+    juce::Component document;
+    juce::TextButton addLine;
+    juce::Label feedback;
+    std::vector<std::unique_ptr<Row>> rows;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BlockEditor)
 };

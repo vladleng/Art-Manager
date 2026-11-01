@@ -11,6 +11,7 @@ public:
     using Execute = std::function<juce::Result(const arranger::WorkspaceAction&)>;
     WorkspaceShell(arranger::WorkspaceModel&, std::unique_ptr<HubEditor>, Execute,
         juce::String selectedView, std::function<void(juce::String)> saveView);
+    ~WorkspaceShell() override;
     void paint(juce::Graphics&) override;
     void resized() override;
     void refresh();
@@ -52,6 +53,7 @@ private:
     void archiveTask(const juce::String&);
     void report(const juce::Result&);
 
+    mr::ManagerTheme theme;
     arranger::WorkspaceModel& model;
     std::unique_ptr<HubEditor> hub;
     Execute runCommand;

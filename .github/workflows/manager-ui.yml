@@ -1,0 +1,52 @@
+name: MR Manager UI Build
+on:
+  push:
+    branches: [ui-47-mr-uds]
+
+jobs:
+  desktop:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify source and bundled resources
+        shell: pwsh
+        run: |
+          $changed = git diff --name-only fa92f6dcf2d8c514715cb8e663412646ffe8ddd5 HEAD
+          $allowed = '^(\.gitattributes$|CMakeLists\.txt$|assets/ui/mr-uds/|docs/|tests/|tools/embed_mr_manager_assets\.py$|\.github/workflows/(manager-ui|windows-build)\.yml$|src/(MRManager(Assets|Style)\.h|TaskTree(Rows)?\.(cpp|h)|Workspace(Shell\.(cpp|h)|Commands\.h|Queries\.h)|TaskDetails\.cpp|BlockEditor\.(cpp|h))$)'
+          foreach ($path in $changed) { if ($path -notmatch $allowed) { throw "Outside assigned UI scope: $path" } }
+          git diff --check fa92f6dcf2d8c514715cb8e663412646ffe8ddd5 HEAD
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/embed_mr_manager_assets.py --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Configure
+        run: cmake -S . -B build
+      - name: Build focused behavior checks
+        run: cmake --build build --config Release --target WorkspaceNavigationTests BlockEditorTests GeneralTaskTests TaskTreeUiTests --parallel 2
+      - name: Test document and inline editing
+        run: ctest --test-dir build -C Release -R "^(WorkspaceNavigationTests|BlockEditorTests|GeneralTaskTests|TaskTreeUiTests)$" --output-on-failure
+      - name: Native UI evidence
+        shell: pwsh
+        run: |
+          foreach ($name in @('task-table-compact.png','page-document.png')) {
+            $data = [Convert]::ToBase64String([IO.File]::ReadAllBytes("$pwd/build/$name"))
+            Write-Output "UI_PREVIEW_$name=$data"
+          }
+      - name: Build Desktop only
+        run: cmake --build build --config Release --target ArrangerManagerDesktop --parallel 2
+      - name: Package UI candidate
+        shell: pwsh
+        run: |
+          $packageDir = 'package/Arranger Manager 0.1h MR UDS'
+          New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
+          Copy-Item 'build/ArrangerManagerDesktop_artefacts/Release/Arranger Manager.exe' $packageDir
+          Copy-Item 'docs/MR-UDS-47.md' $packageDir
+          Copy-Item 'build/task-table-compact.png' $packageDir
+          Copy-Item 'build/page-document.png' $packageDir
+          Copy-Item 'assets/ui/mr-uds/UPSTREAM.json' $packageDir
+          Copy-Item 'assets/ui/mr-uds/README.md' "$packageDir/MR-UDS-ASSETS.md"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Arranger-Manager-0.1h-MR-UDS-Windows-App
+          path: package

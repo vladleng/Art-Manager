@@ -154,6 +154,81 @@ public:
         cp->archivedAt.clear(); return juce::Result::ok();
     }
 
+    // Local task editing shared by the general workspace and retained legacy records.
+    // This does not read or write any external musical project.
+    juce::Result updateTaskText(const TaskReference& ref, const juce::String& cpId, TaskTextField field,
+        const juce::String& expected, juce::String value)
+    {
+        if (WorkspaceQueries::isArchived(model, ref.ownerPageId)) return juce::Result::fail("Owner is archived or missing.");
+        const bool notes = field == TaskTextField::notes;
+        if (!notes) { value = value.trim(); if (value.isEmpty()) return juce::Result::fail("Name cannot be empty."); }
+        if (auto* task = editableTask(ref.taskId); ref.songId.isEmpty() && task && task->ownerPageId == ref.ownerPageId)
+        {
+            if (cpId.isEmpty())
+            {
+                auto props = task->properties;
+                if ((notes ? props.notes : props.name) != expected) return juce::Result::fail("Field changed elsewhere.");
+                auto next = props; (notes ? next.notes : next.name) = value;
+                return updateTask(ref.taskId, props, next);
+            }
+            for (const auto& cp : task->checkpoints) if (cp.id == cpId)
+            {
+                if ((notes ? cp.notes : cp.name) != expected) return juce::Result::fail("Field changed elsewhere.");
+                const auto before = cp; auto next = before; (notes ? next.notes : next.name) = value;
+                return updateCheckpoint(ref.taskId, before, next);
+            }
+            return juce::Result::fail("Subtask not found.");
+        }
+        auto* song = model.catalog.findSongById(ref.songId);
+        if (!song || song->pageId != ref.ownerPageId) return juce::Result::fail("Task owner changed.");
+        auto* task = model.catalog.findTask(song->path, ref.taskId);
+        if (!task) return juce::Result::fail("Task not found.");
+        juce::String* name = &task->name;
+        if (cpId.isNotEmpty())
+        {
+            name = nullptr; for (auto& cp : task->checkpoints) if (cp.id == cpId) name = &cp.name;
+            if (!name) return juce::Result::fail("Subtask not found.");
+        }
+        if (notes)
+        {
+            const auto key = cpId.isEmpty() ? taskNoteKey(ref.taskId) : checkpointNoteKey(cpId);
+            if (model.catalog.localNote(song->path, key) != expected) return juce::Result::fail("Notes changed elsewhere.");
+            return model.catalog.setLocalNote(song->path, key, value) ? juce::Result::ok() : juce::Result::fail("Cannot save notes.");
+        }
+        if (*name != expected) return juce::Result::fail("Name changed elsewhere.");
+        *name = value; return juce::Result::ok();
+    }
+    juce::Result createTaskCheckpoint(const TaskReference& ref, const juce::String& name, juce::String& created)
+    {
+        if (WorkspaceQueries::isArchived(model, ref.ownerPageId)) return juce::Result::fail("Owner is archived or missing.");
+        if (ref.songId.isEmpty())
+        {
+            const auto* task = editableTask(ref.taskId);
+            if (!task || task->ownerPageId != ref.ownerPageId) return juce::Result::fail("Task owner changed.");
+            return createCheckpoint(ref.taskId, name, created);
+        }
+        auto* song = model.catalog.findSongById(ref.songId);
+        if (!song || song->pageId != ref.ownerPageId) return juce::Result::fail("Task owner changed.");
+        created = model.catalog.addCheckpoint(song->path, ref.taskId, name);
+        return created.isNotEmpty() ? juce::Result::ok() : juce::Result::fail("Choose a task and a non-empty name.");
+    }
+    juce::Result setReferenceStatus(const TaskReference& ref, const juce::String& cpId, Status status)
+    {
+        if (parseStatus(label(status)) == Status::unmarked || WorkspaceQueries::isArchived(model, ref.ownerPageId)) return juce::Result::fail("Invalid status or owner.");
+        if (ref.songId.isEmpty())
+        {
+            const auto* task = editableTask(ref.taskId);
+            if (!task || task->ownerPageId != ref.ownerPageId) return juce::Result::fail("Task owner changed.");
+            if (cpId.isEmpty()) { const auto before = task->properties; auto next = before; next.status = status; return updateTask(ref.taskId, before, next); }
+            for (const auto& cp : task->checkpoints) if (cp.id == cpId) { const auto before = cp; auto next = before; next.status = status; return updateCheckpoint(ref.taskId, before, next); }
+            return juce::Result::fail("Subtask not found.");
+        }
+        const auto* song = model.catalog.findSongById(ref.songId);
+        if (!song || song->pageId != ref.ownerPageId) return juce::Result::fail("Task owner changed.");
+        const bool ok = cpId.isEmpty() ? model.catalog.setTaskStatus(song->path, ref.taskId, status) : model.catalog.setCheckpointStatus(song->path, ref.taskId, cpId, status);
+        return ok ? juce::Result::ok() : juce::Result::fail("Task not found.");
+    }
+
 private:
     WorkspaceTask* editableTask(const juce::String& id)
     {

@@ -69,15 +69,23 @@ int main()
     std::set<juce::String> expanded {"task:" + first, "checkpoint:" + cp};
     const auto treeSource = model.toJson();
     auto tree = taskTreeRows(model, WorkspaceQueries::allTasks(model), expanded);
-    REQUIRE(tree.size() == 6 && model.toJson() == treeSource, "Expansion mutated model or omitted notes/checkpoints");
+    REQUIRE(tree.size() == 7 && model.toJson() == treeSource, "Expansion mutated model or omitted notes/checkpoints");
     REQUIRE(tree[3].checkpointId == cp && !tree[3].notes && tree[3].depth == 1
         && tree[4].notes && tree[4].depth == 2, "Checkpoint nesting/identity");
     auto collapsed = taskTreeRows(model, WorkspaceQueries::allTasks(model), {});
     REQUIRE(collapsed.size() == 3, "Collapsed rows leak descendants");
     auto detailRows = taskTreeRows(model, {ref}, expanded, true);
-    REQUIRE(detailRows.size() == 2 && detailRows[0].depth == 0 && detailRows[1].depth == 1, "Detail checkpoint expansion");
+    REQUIRE(detailRows.size() == 3 && detailRows[0].depth == 0 && detailRows[1].depth == 1, "Detail checkpoint expansion");
     auto wrongRows = taskTreeRows(model, {wrong}, expanded);
     REQUIRE(wrongRows.empty(), "Tree accepts wrong owner");
+    const auto beforeInline = model.findTask(first)->properties;
+    REQUIRE(controller.execute([&](WorkspaceCommands& c) { return c.updateTaskText(ref, {}, TaskTextField::notes, beforeInline.notes, "Inline notes"); }).wasOk(), "Inline notes");
+    REQUIRE(controller.execute([&](WorkspaceCommands& c) { return c.updateTaskText(ref, {}, TaskTextField::notes, beforeInline.notes, "Stale"); }).failed(), "Stale inline accepted");
+    REQUIRE(controller.execute([&](WorkspaceCommands& c) { return c.updateTaskText(wrong, {}, TaskTextField::name, beforeInline.name, "Wrong owner"); }).failed(), "Inline wrong owner accepted");
+    REQUIRE(controller.execute([&](WorkspaceCommands& c) { return c.updateTaskText(ref, cp, TaskTextField::notes, cpChanged.notes, "Inline checkpoint"); }).wasOk(), "Inline checkpoint notes");
+    // Restore fixture fields for the existing persistence/undo checks below.
+    REQUIRE(controller.execute([&](WorkspaceCommands& c) { return c.updateTaskText(ref, {}, TaskTextField::notes, "Inline notes", beforeInline.notes); }).wasOk(), "Restore notes fixture");
+    REQUIRE(controller.execute([&](WorkspaceCommands& c) { return c.updateTaskText(ref, cp, TaskTextField::notes, "Inline checkpoint", cpChanged.notes); }).wasOk(), "Restore checkpoint fixture");
     BlockEditorSession editor;
     REQUIRE(editor.bind("task:" + first, [&]() { return std::optional(model.findTask(first)->blocks); },
         [&](const auto& expected, const auto& blocks) { return controller.execute([&](WorkspaceCommands& c) { return c.replaceTaskBlocks(first, expected, blocks); }); }).wasOk(), "Description binding");
@@ -88,7 +96,7 @@ int main()
     REQUIRE(editor.redo().wasOk(), "Description redo");
     REQUIRE(controller.execute([&](WorkspaceCommands& c) { return c.archiveCheckpoint(first, cp); }).wasOk(), "Archive checkpoint");
     REQUIRE(WorkspaceQueries::taskProgress(*model.findTask(first)) == std::make_pair(0, 0), "Archived checkpoint counted");
-    REQUIRE(taskTreeRows(model, {ref}, expanded).size() == 2, "Archived checkpoint leaks into expanded tree");
+    REQUIRE(taskTreeRows(model, {ref}, expanded).size() == 3, "Archived checkpoint leaks into expanded tree");
     REQUIRE(controller.execute([&](WorkspaceCommands& c) { return c.restoreCheckpoint(first, cp); }).wasOk()
         && model.findTask(first)->checkpoints[0].id == cp, "Restore checkpoint ID");
     const auto taskBeforeArchive = *model.findTask(first);

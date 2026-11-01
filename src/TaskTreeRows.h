@@ -9,8 +9,10 @@ struct TaskTreeRow
     juce::String checkpointId;
     bool notes = false;
     int depth = 0;
+    bool addChild = false;
     juce::String key() const
     {
+        if (addChild) return "task:" + reference.taskId + ":add";
         return (checkpointId.isEmpty() ? "task:" + reference.taskId : "checkpoint:" + checkpointId)
             + (notes ? ":notes" : "");
     }
@@ -40,6 +42,7 @@ inline std::vector<TaskTreeRow> taskTreeRows(const WorkspaceModel& model,
             for (const auto& cp : general->checkpoints) if (cp.archivedAt.isEmpty()) append(cp.id);
         }
         else for (const auto& cp : daw->checkpoints) append(cp.id);
+        rows.push_back({ref, {}, false, checkpointsOnly ? 0 : 1, true});
     }
     return rows;
 }

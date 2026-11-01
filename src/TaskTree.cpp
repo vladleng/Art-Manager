@@ -10,29 +10,21 @@ int statusId(arranger::Status value)
     for (int i = 0; i < 7; ++i) if (statuses[i] == value) return i + 1;
     return 2;
 }
-juce::Colour statusColour(arranger::Status value)
-{
-    switch (value)
-    {
-        case arranger::Status::done: return juce::Colour(0xff38ba7a);
-        case arranger::Status::wip: return juce::Colour(0xff429ded);
-        case arranger::Status::wait: return juce::Colour(0xffd7a535);
-        case arranger::Status::blocked: return juce::Colour(0xffdf6464);
-        case arranger::Status::draft: return juce::Colour(0xffa48be0);
-        default: return juce::Colour(0xff9299a1);
-    }
-}
 struct Columns
 {
-    int name = 176, progress, priority, source;
-    explicit Columns(int width) : progress(juce::jmax(290, width - 390)), priority(progress + 150), source(priority + 74) {}
+    int name = 126, progress, priority, source;
+    explicit Columns(int width) : progress(juce::jmax(240, width - 340)), priority(progress + 140), source(priority + 70) {}
 };
-void pill(juce::Graphics& g, juce::String caption, juce::Colour colour, int x, int y, int width, bool dot)
+void pill(juce::Graphics& g, juce::String caption, juce::Colour colour, int x, int y, int width, bool dot, mr::Icons* icons = nullptr, const char* iconId = nullptr)
 {
-    g.setColour(colour.withAlpha(0.35f)); g.fillRoundedRectangle(static_cast<float>(x), static_cast<float>(y), static_cast<float>(width), 25, 12);
-    if (dot) { g.setColour(colour); g.fillEllipse(static_cast<float>(x + 10), static_cast<float>(y + 8), 9, 9); }
-    g.setColour(juce::Colour(0xffedf1f5)); g.setFont(juce::FontOptions(14.0f));
-    g.drawText(caption, x + (dot ? 23 : 0), y, width - (dot ? 27 : 0), 25, dot ? juce::Justification::centredLeft : juce::Justification::centred, true);
+    g.setColour(colour); g.fillRoundedRectangle(static_cast<float>(x), static_cast<float>(y), static_cast<float>(width), 20, 4);
+    if (dot)
+    {
+        if (icons && iconId) icons->draw(iconId, g, {static_cast<float>(x + 7), static_cast<float>(y + 5), 9, 9});
+        else { g.setColour(mr::colour(mr::tokens::meta)); g.drawEllipse(static_cast<float>(x + 9), static_cast<float>(y + 6), 7, 7, 1); }
+    }
+    g.setColour(juce::Colours::white); g.setFont(juce::FontOptions(12.0f));
+    g.drawText(caption, x + (dot ? 21 : 0), y, width - (dot ? 21 : 0), 20, dot ? juce::Justification::centredLeft : juce::Justification::centred, true);
 }
 const arranger::TaskCheckpoint* checkpoint(const arranger::WorkspaceModel& model, const arranger::TaskTreeRow& row)
 {
@@ -55,15 +47,20 @@ juce::String note(const arranger::WorkspaceModel& model, const arranger::TaskTre
     return {};
 }
 }
-TaskTree::TaskTree(arranger::WorkspaceModel& data, Execute run, std::function<bool()> flush,
+TaskTree::TaskTree(arranger::WorkspaceModel& data, Execute run, std::function<bool()> flushPending,
     std::function<void(arranger::TaskReference)> openTask, std::function<void()> notify,
     std::function<void(juce::String)> archiveTask, std::function<void()> newTask)
-    : model(data), execute(std::move(run)), before(std::move(flush)), open(std::move(openTask)),
+    : model(data), execute(std::move(run)), before(std::move(flushPending)), open(std::move(openTask)),
       changed(std::move(notify)), create(std::move(newTask)), archive(std::move(archiveTask))
 {
-    addAndMakeVisible(list); list.setRowHeight(44); list.setMultipleSelectionEnabled(false);
-    list.setColour(juce::ListBox::backgroundColourId, juce::Colour(0xff12181e));
+    addAndMakeVisible(list); list.setRowHeight(32); list.setMultipleSelectionEnabled(false);
+    list.setColour(juce::ListBox::backgroundColourId, mr::colour(mr::tokens::canvas));
     list.setColour(juce::ListBox::outlineColourId, juce::Colours::transparentBlack);
+    addChildComponent(inlineEditor); inlineEditor.setFont(juce::FontOptions(14.0f));
+    inlineEditor.addKeyListener(this);
+    inlineEditor.onReturnKey = [this] { flush(); };
+    inlineEditor.onEscapeKey = [this] { cancelInline(); };
+    inlineEditor.onFocusLost = [this] { if (!committing && editing) flush(); };
     setWantsKeyboardFocus(true);
 }
 void TaskTree::setTasks(std::vector<arranger::TaskReference> refs, bool only)
@@ -77,26 +74,26 @@ void TaskTree::rebuild()
     rows = arranger::taskTreeRows(model, references, expanded, checkpointsOnly);
     list.updateContent(); list.setVisible(!rows.empty()); list.deselectAllRows();
     for (int i = 0; i < getNumRows(); ++i) if (rows[static_cast<size_t>(i)].key() == key) list.selectRow(i, true, false);
-    list.repaint(); repaint();
+    list.repaint(); repaint(); positionInline();
 }
 void TaskTree::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff12181e));
+    g.fillAll(mr::colour(mr::tokens::canvas));
     const Columns columns(list.getVisibleContentWidth());
-    g.setColour(juce::Colour(0xff263039)); g.drawHorizontalLine(39, 0, static_cast<float>(getWidth()));
-    g.setColour(juce::Colour(0xff9eabb9)); g.setFont(juce::FontOptions(14.0f));
-    g.drawText("Status", 46, 0, 100, 39, juce::Justification::centredLeft);
-    g.drawText(checkpointsOnly ? tr("Чек-поинт") : tr("Задача"), columns.name, 0, columns.progress - columns.name, 39, juce::Justification::centredLeft);
-    g.drawText(tr("Прогресс"), columns.progress + 12, 0, 135, 39, juce::Justification::centredLeft);
-    g.drawText(tr("Приоритет"), columns.priority + 5, 0, 72, 39, juce::Justification::centredLeft);
-    if (!checkpointsOnly) g.drawText(tr("Страница"), columns.source + 12, 0, getWidth() - columns.source - 16, 39, juce::Justification::centredLeft);
+    g.setColour(mr::colour(mr::tokens::outline)); g.drawHorizontalLine(31, 0, static_cast<float>(getWidth()));
+    g.setColour(mr::colour(mr::tokens::muted)); g.setFont(juce::FontOptions(12.0f));
+    g.drawText(tr("Статус"), 26, 0, 100, 31, juce::Justification::centredLeft);
+    g.drawText(checkpointsOnly ? tr("Подзадача") : tr("Задача"), columns.name, 0, columns.progress - columns.name, 31, juce::Justification::centredLeft);
+    g.drawText(tr("Прогресс"), columns.progress + 12, 0, 135, 31, juce::Justification::centredLeft);
+    g.drawText(tr("Приоритет"), columns.priority + 5, 0, 72, 31, juce::Justification::centredLeft);
+    if (!checkpointsOnly) g.drawText(tr("Страница"), columns.source + 12, 0, getWidth() - columns.source - 16, 31, juce::Justification::centredLeft);
     if (rows.empty())
     {
-        g.setColour(juce::Colour(0xff8393a4));
+        g.setColour(mr::colour(mr::tokens::muted));
         g.drawText(tr("Пока пусто. Правый клик — добавить задачу или чек-поинт."), 18, 55, getWidth() - 36, 50, juce::Justification::centredLeft, true);
     }
 }
-void TaskTree::resized() { list.setBounds(getLocalBounds().withTrimmedTop(40)); }
+void TaskTree::resized() { list.setBounds(getLocalBounds().withTrimmedTop(32)); positionInline(); }
 int TaskTree::getNumRows() { return static_cast<int>(rows.size()); }
 void TaskTree::paintListBoxItem(int index, juce::Graphics& g, int width, int height, bool selected)
 {
@@ -104,25 +101,31 @@ void TaskTree::paintListBoxItem(int index, juce::Graphics& g, int width, int hei
     const auto& row = rows[static_cast<size_t>(index)]; const Columns columns(width);
     if (selected)
     {
-        g.setColour(juce::Colour(0xff20344c)); g.fillRoundedRectangle(1, 1, static_cast<float>(width - 2), static_cast<float>(height - 2), 5);
-        g.setColour(juce::Colour(0xff3e699d)); g.drawRoundedRectangle(1, 1, static_cast<float>(width - 2), static_cast<float>(height - 2), 5, 1);
+        g.setColour(mr::colour(mr::tokens::selected)); g.fillRoundedRectangle(1, 1, static_cast<float>(width - 2), static_cast<float>(height - 2), 5);
+        g.setColour(mr::colour(mr::tokens::focus)); g.drawRoundedRectangle(1, 1, static_cast<float>(width - 2), static_cast<float>(height - 2), 5, 1);
     }
-    g.setColour(juce::Colour(0xff263039)); g.drawHorizontalLine(height - 1, 0, static_cast<float>(width));
-    for (int depth = 0; depth < row.depth; ++depth) g.drawVerticalLine(18 + depth * 18, 0, static_cast<float>(height));
-    const int indent = row.depth * 18;
+    g.setColour(mr::colour(mr::tokens::outline)); g.drawHorizontalLine(height - 1, 0, static_cast<float>(width));
+    for (int depth = 0; depth < row.depth; ++depth) g.drawVerticalLine(12 + depth * 14, 0, static_cast<float>(height));
+    const int indent = row.depth * 14;
     if (row.depth > 0) g.drawHorizontalLine(height / 2, static_cast<float>(indent), static_cast<float>(indent + 10));
+    if (row.addChild)
+    {
+        g.setColour(mr::colour(mr::tokens::muted)); g.setFont(juce::FontOptions(13.0f));
+        g.drawText(tr("+ Новая подзадача"), columns.name + indent + 18, 0, width - columns.name - indent - 24, height, juce::Justification::centredLeft, true);
+        return;
+    }
     if (row.notes)
     {
         auto caption = note(model, row); if (caption.isEmpty()) caption = tr("Заметок пока нет");
-        g.setColour(juce::Colour(0xffa5b4c3)); g.setFont(juce::FontOptions(13.0f));
-        g.drawFittedText(caption, 48 + indent, 4, width - 64 - indent, height - 8, juce::Justification::centredLeft, 2, 1.0f);
+        g.setColour(mr::colour(mr::tokens::muted)); g.setFont(juce::FontOptions(13.0f));
+        g.drawFittedText(caption, columns.name + indent + 20, 4, width - columns.name - indent - 36, height - 8, juce::Justification::centredLeft, 2, 1.0f);
         return;
     }
     juce::Path arrow;
-    const float x = static_cast<float>(12 + indent), y = static_cast<float>(height / 2);
-    if (expanded.contains(row.key())) { arrow.startNewSubPath(x, y - 3); arrow.lineTo(x + 12, y - 3); arrow.lineTo(x + 6, y + 4); }
-    else { arrow.startNewSubPath(x + 3, y - 6); arrow.lineTo(x + 3, y + 6); arrow.lineTo(x + 10, y); }
-    arrow.closeSubPath(); g.setColour(juce::Colour(0xffdce6ef)); g.fillPath(arrow);
+    const float x = static_cast<float>(7 + indent), y = static_cast<float>(height / 2);
+    if (expanded.contains(row.key())) { arrow.startNewSubPath(x, y - 3); arrow.lineTo(x + 8, y - 3); arrow.lineTo(x + 4, y + 4); }
+    else { arrow.startNewSubPath(x + 3, y - 4); arrow.lineTo(x + 3, y + 4); arrow.lineTo(x + 7, y); }
+    arrow.closeSubPath(); g.setColour(mr::colour(mr::tokens::bright)); g.fillPath(arrow);
     auto status = arranger::WorkspaceQueries::taskStatus(model, row.reference);
     auto name = arranger::WorkspaceQueries::taskName(model, row.reference);
     int priority = 0, done = 0, total = 0;
@@ -138,49 +141,47 @@ void TaskTree::paintListBoxItem(int index, juce::Graphics& g, int width, int hei
         else for (const auto& cp : task->checkpoints) if (cp.id == row.checkpointId) { name = cp.name; status = cp.status; }
     }
     if (row.checkpointId.isNotEmpty()) { total = 1; done = status == arranger::Status::done ? 1 : 0; }
-    pill(g, arranger::label(status), statusColour(status), 40 + indent, 9, 92, true);
-    g.setColour(row.checkpointId.isEmpty() ? juce::Colour(0xff7aaee9) : juce::Colour(0xff38ba7a));
-    g.setFont(juce::FontOptions(16.0f));
+    pill(g, arranger::label(status), mr::statusFill(status), 24 + indent, 6, 74, true, &icons, mr::statusIcon(status));
+    g.setColour(row.checkpointId.isEmpty() ? mr::colour(mr::tokens::meta) : mr::colour(mr::tokens::progressFill));
+    g.setFont(juce::FontOptions(14.0f));
     const int nameX = columns.name + indent;
-    if (row.checkpointId.isEmpty()) g.drawText(tr("▤"), nameX, 0, 24, height, juce::Justification::centredLeft);
+    if (row.checkpointId.isEmpty()) icons.draw("manager/actions/organizer", g, {static_cast<float>(nameX), static_cast<float>(height / 2 - 6), 12, 12});
     else
     {
-        const float iconX = static_cast<float>(nameX + 3), iconY = static_cast<float>(height / 2 - 7);
-        g.setColour(status == arranger::Status::done ? juce::Colour(0xff38ba7a) : juce::Colour(0xff8495a6));
-        g.drawRoundedRectangle(iconX, iconY, 14, 14, 3, 1.5f);
+        const float iconX = static_cast<float>(nameX + 3), iconY = static_cast<float>(height / 2 - 5);
+        g.setColour(status == arranger::Status::done ? mr::colour(mr::tokens::progressFill) : mr::colour(mr::tokens::muted));
+        g.drawRoundedRectangle(iconX, iconY, 10, 10, 2, 1.0f);
         if (status == arranger::Status::done)
         {
-            juce::Path tick; tick.startNewSubPath(iconX + 3, iconY + 7);
-            tick.lineTo(iconX + 6, iconY + 10); tick.lineTo(iconX + 11, iconY + 4);
-            g.strokePath(tick, juce::PathStrokeType(1.8f));
+            juce::Path tick; tick.startNewSubPath(iconX + 2, iconY + 5);
+            tick.lineTo(iconX + 4, iconY + 7); tick.lineTo(iconX + 8, iconY + 2);
+            g.strokePath(tick, juce::PathStrokeType(1.2f));
         }
     }
-    g.setColour(juce::Colour(0xffedf1f5));
-    g.drawText(name, nameX + 28, 0, juce::jmax(0, columns.progress - nameX - 36), height, juce::Justification::centredLeft, true);
+    g.setColour(mr::colour(mr::tokens::bright));
+    g.drawText(name, nameX + 20, 0, juce::jmax(0, columns.progress - nameX - 28), height, juce::Justification::centredLeft, true);
     const int percent = total > 0 ? done * 100 / total : 0;
-    g.setFont(juce::FontOptions(12.0f)); g.setColour(juce::Colour(0xffa4afbd));
+    g.setFont(juce::FontOptions(12.0f)); g.setColour(mr::colour(mr::tokens::meta));
     g.drawText(juce::String(percent) + "%", columns.progress + 10, 0, 36, height, juce::Justification::centredLeft);
-    g.setColour(juce::Colour(0xff252e37)); g.fillRoundedRectangle(static_cast<float>(columns.progress + 52), 19, 84, 7, 3);
-    if (percent > 0) { g.setColour(juce::Colour(0xff38ba7a)); g.fillRoundedRectangle(static_cast<float>(columns.progress + 52), 19, 84.0f * static_cast<float>(percent) / 100.0f, 7, 3); }
+    g.setColour(mr::colour(mr::tokens::progressBg)); g.fillRoundedRectangle(static_cast<float>(columns.progress + 52), 14, 76, 4, 2);
+    if (percent > 0) { g.setColour(mr::colour(mr::tokens::progressFill)); g.fillRoundedRectangle(static_cast<float>(columns.progress + 52), 14, 76.0f * static_cast<float>(percent) / 100.0f, 4, 2); }
     if (priority > 0 && row.checkpointId.isEmpty())
     {
-        const juce::Colour colours[] = {juce::Colour(0xffdb6262), juce::Colour(0xffd8994c), juce::Colour(0xff429ded), juce::Colour(0xff38ba7a)};
-        pill(g, "P" + juce::String(priority), colours[priority - 1], columns.priority + 12, 9, 42, false);
+        pill(g, "P" + juce::String(priority), mr::priorityFill(priority), columns.priority + 12, 6, 30, false);
     }
     if (!checkpointsOnly && row.checkpointId.isEmpty())
     {
-        g.setColour(juce::Colour(0xff93a2b4)); g.setFont(juce::FontOptions(12.0f));
+        g.setColour(mr::colour(mr::tokens::muted)); g.setFont(juce::FontOptions(12.0f));
         g.drawText(arranger::WorkspaceQueries::breadcrumb(model, row.reference.ownerPageId), columns.source + 12, 0,
             juce::jmax(0, width - columns.source - 20), height, juce::Justification::centredLeft, true);
     }
-    g.setColour(juce::Colour(0xff263039));
-    for (const int column : {columns.name - 8, columns.progress, columns.priority, columns.source})
-        g.drawVerticalLine(column, 0, static_cast<float>(height));
+    g.setColour(mr::colour(mr::tokens::outline));
+
 }
 void TaskTree::toggle(int index)
 {
     if (index < 0 || index >= getNumRows()) return;
-    const auto row = rows[static_cast<size_t>(index)]; if (row.notes) return;
+    const auto row = rows[static_cast<size_t>(index)]; if (row.notes || row.addChild) return;
     if (!expanded.erase(row.key())) expanded.insert(row.key());
     rebuild();
 }
@@ -188,18 +189,48 @@ void TaskTree::listBoxItemClicked(int index, const juce::MouseEvent& event)
 {
     if (index < 0 || index >= getNumRows()) return;
     const auto row = rows[static_cast<size_t>(index)];
-    if (event.mods.isPopupMenu()) showMenu(row, event.getScreenPosition());
-    else if (event.x < 36 + row.depth * 18) toggle(index);
+    if (flush().failed()) return;
+    const Columns columns(list.getVisibleContentWidth());
+    if (event.mods.isPopupMenu()) { if (row.addChild) beginInline(row); else showMenu(row, event.getScreenPosition()); return; }
+    if (row.addChild) { beginInline(row); return; }
+    if (row.notes) return;
+    if (event.x < 22 + row.depth * 14) { for (int i = 0; i < getNumRows(); ++i) if (rows[static_cast<size_t>(i)].key() == row.key()) { toggle(i); break; } return; }
+    if (event.x < columns.name) { statusMenu(row,event.getScreenPosition()); return; }
+    if (event.x >= columns.priority && event.x < columns.source && row.checkpointId.isEmpty())
+    {
+        if (const auto* task = arranger::WorkspaceQueries::generalTask(model,row.reference))
+        {
+            const auto expected = task->properties; juce::PopupMenu priorities; priorities.setLookAndFeel(&getLookAndFeel());
+            for (int i = 1; i <= 4; ++i) priorities.addItem(i,"P" + juce::String(i),true,expected.priority == i);
+            juce::Component::SafePointer<TaskTree> safe(this);
+            priorities.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this),[safe,row,expected](int value)
+            {
+                if (!safe || value < 1 || value > 4) return;
+                auto next = expected; next.priority = value;
+                safe->apply([&](arranger::WorkspaceCommands& cmd) { return cmd.updateTask(row.reference.taskId,expected,next); });
+            });
+        }
+        return;
+    }
+    const int nameX = columns.name + row.depth * 14;
+    if (event.x >= nameX && event.x < nameX + 18)
+    {
+        if (row.checkpointId.isEmpty()) { if (open) open(row.reference); }
+        else
+        {
+            auto value = arranger::Status::todo;
+            if (const auto* cp = checkpoint(model,row)) value = cp->status;
+            else if (const auto* task = arranger::WorkspaceQueries::task(model,row.reference)) for (const auto& cp : task->checkpoints) if (cp.id == row.checkpointId) value = cp.status;
+            apply([&](arranger::WorkspaceCommands& cmd) { return cmd.setReferenceStatus(row.reference,row.checkpointId,value == arranger::Status::done ? arranger::Status::todo : arranger::Status::done); });
+        }
+    }
 }
 void TaskTree::listBoxItemDoubleClicked(int index, const juce::MouseEvent& event)
 {
     if (event.mods.isPopupMenu() || index < 0 || index >= getNumRows()) return;
-    const auto row = rows[static_cast<size_t>(index)];
-    if (row.checkpointId.isEmpty() && open) open(row.reference);
-    else if (row.notes) editCheckpoint(row.reference, row.checkpointId);
-    else toggle(index);
+    beginInline(rows[static_cast<size_t>(index)]);
 }
-void TaskTree::returnKeyPressed(int index) { toggle(index); }
+void TaskTree::returnKeyPressed(int index) { if (index >= 0 && index < getNumRows()) beginInline(rows[static_cast<size_t>(index)]); }
 void TaskTree::backgroundClicked(const juce::MouseEvent& event) { if (event.mods.isPopupMenu()) showBackgroundMenu(event.getScreenPosition()); }
 void TaskTree::mouseDown(const juce::MouseEvent& event) { if (event.mods.isPopupMenu()) showBackgroundMenu(event.getScreenPosition()); }
 void TaskTree::showTaskMenu(const arranger::TaskReference& ref, juce::Point<int> position) { showMenu({ref, {}, false, 0}, position); }
@@ -207,14 +238,14 @@ void TaskTree::showBackgroundMenu(juce::Point<int> position)
 {
     if (checkpointsOnly && !references.empty()) { showTaskMenu(references.front(), position); return; }
     if (!create) return;
-    juce::PopupMenu menu; menu.addItem(1, tr("Создать задачу"));
+    juce::PopupMenu menu; menu.setLookAndFeel(&getLookAndFeel()); menu.addItem(1, tr("Создать задачу"));
     juce::Component::SafePointer<TaskTree> safe(this);
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this).withTargetScreenArea({position.x, position.y, 1, 1}),
         [safe](int item) { if (safe != nullptr && item == 1 && safe->create) safe->create(); });
 }
 void TaskTree::apply(const arranger::WorkspaceAction& action)
 {
-    if (before && !before()) return;
+    if (flush().failed() || (before && !before())) return;
     const auto result = execute(action);
     if (result.failed()) juce::NativeMessageBox::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
         tr("Не удалось сохранить"), result.getErrorMessage(), this);
@@ -225,11 +256,11 @@ void TaskTree::showMenu(arranger::TaskTreeRow row, juce::Point<int> position)
     if (before && !before()) return;
     const auto* task = arranger::WorkspaceQueries::generalTask(model, row.reference);
     const auto* cp = checkpoint(model, row);
-    juce::PopupMenu menu;
+    juce::PopupMenu menu; menu.setLookAndFeel(&getLookAndFeel());
     if (open) menu.addItem(1, task ? tr("Открыть задачу") : tr("Открыть песню в DAW"));
     if (task)
     {
-        menu.addItem(2, cp ? tr("Изменить чек-поинт / Notes") : tr("Переименовать / свойства / Notes"));
+        menu.addItem(2, cp ? tr("Изменить подзадачу / заметки") : tr("Переименовать / свойства / Notes"));
         juce::PopupMenu statusMenu;
         const auto currentStatus = cp ? cp->status : task->properties.status;
         for (int i = 0; i < 7; ++i) statusMenu.addItem(20 + i, arranger::label(statuses[i]), true, statuses[i] == currentStatus);
@@ -239,7 +270,7 @@ void TaskTree::showMenu(arranger::TaskTreeRow row, juce::Point<int> position)
             juce::PopupMenu priorities;
             for (int i = 1; i <= 4; ++i) priorities.addItem(30 + i, "P" + juce::String(i), true, task->properties.priority == i);
             menu.addSubMenu(tr("Приоритет"), priorities);
-            menu.addSeparator(); menu.addItem(3, tr("Добавить чек-поинт"));
+            menu.addSeparator(); menu.addItem(3, tr("Добавить подзадачу"));
             juce::PopupMenu restore; int item = 100;
             for (const auto& archived : task->checkpoints) if (archived.archivedAt.isNotEmpty()) restore.addItem(item++, archived.name);
             if (item > 100) menu.addSubMenu(tr("Восстановить чек-поинт"), restore);
@@ -257,7 +288,7 @@ void TaskTree::showMenu(arranger::TaskTreeRow row, juce::Point<int> position)
             const auto ref = row.reference;
             if (item == 1) { if (safe->open) safe->open(ref); return; }
             if (item == 2) { if (row.checkpointId.isEmpty()) safe->editTask(ref); else safe->editCheckpoint(ref, row.checkpointId); return; }
-            if (item == 3) { safe->editCheckpoint(ref); return; }
+            if (item == 3) { auto add = row; add.checkpointId.clear(); add.notes = false; add.addChild = true; safe->expanded.insert("task:" + ref.taskId); safe->rebuild(); safe->beginInline(add); return; }
             if (item == 5) { if (safe->create) safe->create(); return; }
             if (item == 4 && row.checkpointId.isEmpty()) { if (safe->archive) safe->archive(ref.taskId); return; }
             // Resolve fresh values after pending editor fields have been flushed. No model pointers survive a menu.
@@ -347,4 +378,80 @@ void TaskTree::editCheckpoint(arranger::TaskReference ref, juce::String cpId)
         safe->apply([&](arranger::WorkspaceCommands& cmd)
         { return adding ? cmd.createCheckpoint(ref.taskId, value.name, created) : cmd.updateCheckpoint(ref.taskId, expected, value); });
     }), true);
+}
+
+void TaskTree::beginInline(arranger::TaskTreeRow row)
+{
+    if (flush().failed() || (before && !before())) return;
+    expectedText = row.notes ? note(model, row) : arranger::WorkspaceQueries::taskName(model, row.reference);
+    if (!row.notes && row.checkpointId.isNotEmpty())
+    {
+        if (const auto* cp = checkpoint(model, row)) expectedText = cp->name;
+        else if (const auto* task = arranger::WorkspaceQueries::task(model, row.reference))
+            for (const auto& cp : task->checkpoints) if (cp.id == row.checkpointId) expectedText = cp.name;
+    }
+    editing = row;
+    inlineEditor.setColour(juce::TextEditor::focusedOutlineColourId, mr::colour(mr::tokens::focus));
+    inlineEditor.setTooltip({});
+    inlineEditor.setMultiLine(row.notes); inlineEditor.setReturnKeyStartsNewLine(row.notes);
+    inlineEditor.setText(row.addChild ? juce::String() : expectedText, false);
+    inlineEditor.setTextToShowWhenEmpty(row.addChild ? tr("Название подзадачи · Enter — создать") : tr("Введите заметку · Ctrl+Enter — сохранить"), mr::colour(mr::tokens::muted));
+    positionInline(); inlineEditor.setVisible(true); inlineEditor.toFront(true);
+    inlineEditor.grabKeyboardFocus(); inlineEditor.moveCaretToEnd();
+}
+void TaskTree::positionInline()
+{
+    if (!editing) return;
+    for (int i = 0; i < getNumRows(); ++i) if (rows[static_cast<size_t>(i)].key() == editing->key())
+    {
+        auto bounds = list.getRowPosition(i, true).translated(list.getX(), list.getY());
+        const Columns columns(list.getVisibleContentWidth());
+        const int left = editing->notes ? columns.name + editing->depth * 14 + 20 : columns.name + editing->depth * 14;
+        bounds.removeFromLeft(left); bounds.removeFromRight(10);
+        if (editing->notes) bounds.setHeight(juce::jmin(88, juce::jmax(32, getHeight() - bounds.getY())));
+        inlineEditor.setBounds(bounds.reduced(1)); return;
+    }
+}
+void TaskTree::listWasScrolled() { positionInline(); }
+void TaskTree::cancelInline(bool refocus)
+{
+    editing.reset(); inlineEditor.setVisible(false); if (refocus) list.grabKeyboardFocus();
+}
+juce::Result TaskTree::flush()
+{
+    if (!editing || committing) return juce::Result::ok();
+    const auto row = *editing; const auto value = inlineEditor.getText();
+    if ((!row.addChild && value == expectedText) || (row.addChild && value.trim().isEmpty())) { cancelInline(false); return juce::Result::ok(); }
+    committing = true;
+    const auto result = execute([&](arranger::WorkspaceCommands& cmd)
+    {
+        if (row.addChild) { juce::String id; return cmd.createTaskCheckpoint(row.reference, value, id); }
+        return cmd.updateTaskText(row.reference, row.checkpointId, row.notes ? arranger::TaskTextField::notes : arranger::TaskTextField::name, expectedText, value);
+    });
+    if (result.wasOk())
+    {
+        cancelInline(false); rebuild(); if (changed) changed();
+    }
+    else
+    {
+        inlineEditor.setColour(juce::TextEditor::focusedOutlineColourId, mr::colour(mr::tokens::blockedDot));
+        inlineEditor.setTooltip(result.getErrorMessage()); inlineEditor.setVisible(true); inlineEditor.grabKeyboardFocus();
+    }
+    committing = false; return result;
+}
+bool TaskTree::keyPressed(const juce::KeyPress& key, juce::Component*)
+{
+    if (key.getKeyCode() == juce::KeyPress::returnKey && (key.getModifiers().isCtrlDown() || key.getModifiers().isCommandDown())) { flush(); return true; }
+    return false;
+}
+void TaskTree::statusMenu(arranger::TaskTreeRow row, juce::Point<int> position)
+{
+    if (flush().failed() || (before && !before())) return;
+    juce::PopupMenu menu; menu.setLookAndFeel(&getLookAndFeel());
+    for (int i = 0; i < 7; ++i) menu.addItem(i + 1, arranger::label(statuses[i]));
+    juce::Component::SafePointer<TaskTree> safe(this);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this).withTargetScreenArea({position.x,position.y,1,1}), [safe,row](int choice)
+    {
+        if (safe && choice >= 1 && choice <= 7) safe->apply([&](arranger::WorkspaceCommands& cmd) { return cmd.setReferenceStatus(row.reference,row.checkpointId,statuses[choice - 1]); });
+    });
 }

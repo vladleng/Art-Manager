@@ -1,0 +1,67 @@
+{
+  "name": "MR Manager visual tokens v1",
+  "date": "2026-10-26",
+  "scope": "Manager SVG only; no changes to global JUCE Theme",
+  "colors": {
+    "canvas": "#191A1C",
+    "panel": "#242629",
+    "channel": "#292B2E",
+    "item": "#292D33",
+    "selected": "#2B3037",
+    "section": "#36383C",
+    "outline": "#415167",
+    "bright": "#DAE5F4",
+    "meta": "#91BBEE",
+    "muted": "#7188AB",
+    "progressBg": "#353633",
+    "progressFill": "#59AD87",
+    "ready": "#78AD88",
+    "todo": "#444541",
+    "todoDot": "#A0A39E",
+    "wait": "#725A23",
+    "waitDot": "#D6AE58",
+    "wip": "#355F83",
+    "wipDot": "#72B5E8",
+    "done": "#285E4D",
+    "doneDot": "#6BC39D",
+    "blocked": "#682F38",
+    "blockedDot": "#E68F88",
+    "p1": "#99564A",
+    "p2": "#94613E",
+    "p3": "#887142",
+    "p4": "#5A5A57",
+    "armed": "#E68F88",
+    "focus": "#91BBEE"
+  },
+  "geometry": {
+    "item": [
+      334,
+      52
+    ],
+    "section": [
+      334,
+      30
+    ],
+    "status": [
+      66,
+      20
+    ],
+    "priority": [
+      30,
+      18
+    ],
+    "progress": [
+      82,
+      6
+    ],
+    "channelButton": [
+      24,
+      22
+    ],
+    "icon": [
+      24,
+      24
+    ]
+  },
+  "rule": "Native JUCE draws dynamic names/status/progress/meters; reference SVGs must not replace real data."
+}

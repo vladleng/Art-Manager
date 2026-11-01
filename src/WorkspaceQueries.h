@@ -5,6 +5,7 @@
 namespace arranger
 {
 struct PageRow { juce::String id; int depth = 0; };
+enum class TaskTextField { name, notes };
 struct TaskReference { juce::String songId, ownerPageId, taskId; };
 
 struct WorkspaceQueries

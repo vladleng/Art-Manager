@@ -1,0 +1,605 @@
+{
+  "name": "MR Manager Kit v1",
+  "version": 1,
+  "total_svg": 46,
+  "assets": [
+    {
+      "id": "manager/status/todo",
+      "file": "svg/manager/status/todo.svg",
+      "size": [
+        66,
+        20
+      ],
+      "category": "status",
+      "usage": "reference",
+      "description": "Fixed-label status sample; native host draws state text.",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/status/todo_glyph",
+      "file": "svg/manager/status/todo_glyph.svg",
+      "size": [
+        16,
+        16
+      ],
+      "category": "icon",
+      "usage": "icon",
+      "description": "Todo status glyph",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/status/wait",
+      "file": "svg/manager/status/wait.svg",
+      "size": [
+        66,
+        20
+      ],
+      "category": "status",
+      "usage": "reference",
+      "description": "Fixed-label status sample; native host draws state text.",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/status/wait_glyph",
+      "file": "svg/manager/status/wait_glyph.svg",
+      "size": [
+        16,
+        16
+      ],
+      "category": "icon",
+      "usage": "icon",
+      "description": "Wait status glyph",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/status/wip",
+      "file": "svg/manager/status/wip.svg",
+      "size": [
+        66,
+        20
+      ],
+      "category": "status",
+      "usage": "reference",
+      "description": "Fixed-label status sample; native host draws state text.",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/status/wip_glyph",
+      "file": "svg/manager/status/wip_glyph.svg",
+      "size": [
+        16,
+        16
+      ],
+      "category": "icon",
+      "usage": "icon",
+      "description": "Wip status glyph",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/status/done",
+      "file": "svg/manager/status/done.svg",
+      "size": [
+        66,
+        20
+      ],
+      "category": "status",
+      "usage": "reference",
+      "description": "Fixed-label status sample; native host draws state text.",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/status/done_glyph",
+      "file": "svg/manager/status/done_glyph.svg",
+      "size": [
+        16,
+        16
+      ],
+      "category": "icon",
+      "usage": "icon",
+      "description": "Done status glyph",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/status/blocked",
+      "file": "svg/manager/status/blocked.svg",
+      "size": [
+        78,
+        20
+      ],
+      "category": "status",
+      "usage": "reference",
+      "description": "Fixed-label status sample; native host draws state text.",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/status/blocked_glyph",
+      "file": "svg/manager/status/blocked_glyph.svg",
+      "size": [
+        16,
+        16
+      ],
+      "category": "icon",
+      "usage": "icon",
+      "description": "Blocked status glyph",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/status/pill_base",
+      "file": "svg/manager/status/pill_base.svg",
+      "size": [
+        66,
+        20
+      ],
+      "category": "template",
+      "usage": "template",
+      "description": "For dynamic label, dot and background from native state.",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/priority/p1",
+      "file": "svg/manager/priority/p1.svg",
+      "size": [
+        30,
+        18
+      ],
+      "category": "priority",
+      "usage": "reference",
+      "description": "Fixed visual sample; paint label dynamically in native UI.",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/priority/p2",
+      "file": "svg/manager/priority/p2.svg",
+      "size": [
+        30,
+        18
+      ],
+      "category": "priority",
+      "usage": "reference",
+      "description": "Fixed visual sample; paint label dynamically in native UI.",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/priority/p3",
+      "file": "svg/manager/priority/p3.svg",
+      "size": [
+        30,
+        18
+      ],
+      "category": "priority",
+      "usage": "reference",
+      "description": "Fixed visual sample; paint label dynamically in native UI.",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/priority/p4",
+      "file": "svg/manager/priority/p4.svg",
+      "size": [
+        30,
+        18
+      ],
+      "category": "priority",
+      "usage": "reference",
+      "description": "Fixed visual sample; paint label dynamically in native UI.",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/priority/badge_base",
+      "file": "svg/manager/priority/badge_base.svg",
+      "size": [
+        30,
+        18
+      ],
+      "category": "template",
+      "usage": "template",
+      "description": "Priority badge base",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/priority/flag",
+      "file": "svg/manager/priority/flag.svg",
+      "size": [
+        24,
+        24
+      ],
+      "category": "icon",
+      "usage": "icon",
+      "description": "Priority flag",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/progress/empty",
+      "file": "svg/manager/progress/empty.svg",
+      "size": [
+        82,
+        6
+      ],
+      "category": "progress",
+      "usage": "reference",
+      "description": "Illustration only; host draws real progress.",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/progress/quarter",
+      "file": "svg/manager/progress/quarter.svg",
+      "size": [
+        82,
+        6
+      ],
+      "category": "progress",
+      "usage": "reference",
+      "description": "Illustration only; host draws real progress.",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/progress/half",
+      "file": "svg/manager/progress/half.svg",
+      "size": [
+        82,
+        6
+      ],
+      "category": "progress",
+      "usage": "reference",
+      "description": "Illustration only; host draws real progress.",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/progress/three_quarters",
+      "file": "svg/manager/progress/three_quarters.svg",
+      "size": [
+        82,
+        6
+      ],
+      "category": "progress",
+      "usage": "reference",
+      "description": "Illustration only; host draws real progress.",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/progress/complete",
+      "file": "svg/manager/progress/complete.svg",
+      "size": [
+        82,
+        6
+      ],
+      "category": "progress",
+      "usage": "reference",
+      "description": "Illustration only; host draws real progress.",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/progress/track",
+      "file": "svg/manager/progress/track.svg",
+      "size": [
+        82,
+        6
+      ],
+      "category": "template",
+      "usage": "template",
+      "description": "Empty progress track",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/indicators/inactive",
+      "file": "svg/manager/indicators/inactive.svg",
+      "size": [
+        10,
+        10
+      ],
+      "category": "indicator",
+      "usage": "template",
+      "description": "Inactive indicator",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/indicators/ready",
+      "file": "svg/manager/indicators/ready.svg",
+      "size": [
+        10,
+        10
+      ],
+      "category": "indicator",
+      "usage": "template",
+      "description": "Ready indicator",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/components/set_header",
+      "file": "svg/manager/components/set_header.svg",
+      "size": [
+        334,
+        30
+      ],
+      "category": "template",
+      "usage": "template",
+      "description": "Setlist section header",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/components/set_header_example",
+      "file": "svg/manager/components/set_header_example.svg",
+      "size": [
+        334,
+        30
+      ],
+      "category": "example",
+      "usage": "reference",
+      "description": "Section names dynamic in host.",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/components/item_default_base",
+      "file": "svg/manager/components/item_default_base.svg",
+      "size": [
+        334,
+        52
+      ],
+      "category": "template",
+      "usage": "template",
+      "description": "Native host populates song title, state, BPM, progress and priority.",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/components/item_default",
+      "file": "svg/manager/components/item_default.svg",
+      "size": [
+        334,
+        52
+      ],
+      "category": "example",
+      "usage": "reference",
+      "description": "Fixture labels only, not production user data.",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/components/item_selected_base",
+      "file": "svg/manager/components/item_selected_base.svg",
+      "size": [
+        334,
+        52
+      ],
+      "category": "template",
+      "usage": "template",
+      "description": "Native host populates song title, state, BPM, progress and priority.",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/components/item_selected",
+      "file": "svg/manager/components/item_selected.svg",
+      "size": [
+        334,
+        52
+      ],
+      "category": "example",
+      "usage": "reference",
+      "description": "Fixture labels only, not production user data.",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/components/search",
+      "file": "svg/manager/components/search.svg",
+      "size": [
+        334,
+        24
+      ],
+      "category": "example",
+      "usage": "reference",
+      "description": "Search input example",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/components/search_base",
+      "file": "svg/manager/components/search_base.svg",
+      "size": [
+        334,
+        24
+      ],
+      "category": "template",
+      "usage": "template",
+      "description": "Native TextEditor handles text, focus and keyboard.",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/controls/mute",
+      "file": "svg/manager/controls/mute.svg",
+      "size": [
+        24,
+        22
+      ],
+      "category": "control",
+      "usage": "reference",
+      "description": "JUCE provides focus, automation state and interaction.",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/controls/mute_active",
+      "file": "svg/manager/controls/mute_active.svg",
+      "size": [
+        24,
+        22
+      ],
+      "category": "control",
+      "usage": "reference",
+      "description": "Do not conflate selected and armed.",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/controls/solo",
+      "file": "svg/manager/controls/solo.svg",
+      "size": [
+        24,
+        22
+      ],
+      "category": "control",
+      "usage": "reference",
+      "description": "JUCE provides focus, automation state and interaction.",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/controls/solo_active",
+      "file": "svg/manager/controls/solo_active.svg",
+      "size": [
+        24,
+        22
+      ],
+      "category": "control",
+      "usage": "reference",
+      "description": "Do not conflate selected and armed.",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/controls/record",
+      "file": "svg/manager/controls/record.svg",
+      "size": [
+        24,
+        22
+      ],
+      "category": "control",
+      "usage": "reference",
+      "description": "JUCE provides focus, automation state and interaction.",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/controls/record_active",
+      "file": "svg/manager/controls/record_active.svg",
+      "size": [
+        24,
+        22
+      ],
+      "category": "control",
+      "usage": "reference",
+      "description": "Do not conflate selected and armed.",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/controls/menu_dots",
+      "file": "svg/manager/controls/menu_dots.svg",
+      "size": [
+        24,
+        24
+      ],
+      "category": "icon",
+      "usage": "icon",
+      "description": "Unframed vertical menu",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/components/channel_card_example",
+      "file": "svg/manager/components/channel_card_example.svg",
+      "size": [
+        144,
+        108
+      ],
+      "category": "example",
+      "usage": "reference",
+      "description": "Title, role, buttons and menu are separate runtime bindings.",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/components/panel_frame",
+      "file": "svg/manager/components/panel_frame.svg",
+      "size": [
+        168,
+        120
+      ],
+      "category": "template",
+      "usage": "template",
+      "description": "Dark panel frame",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/actions/add_task",
+      "file": "svg/manager/actions/add_task.svg",
+      "size": [
+        24,
+        24
+      ],
+      "category": "icon",
+      "usage": "icon",
+      "description": "Add task",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/actions/checklist",
+      "file": "svg/manager/actions/checklist.svg",
+      "size": [
+        24,
+        24
+      ],
+      "category": "icon",
+      "usage": "icon",
+      "description": "Checklist",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/actions/expand",
+      "file": "svg/manager/actions/expand.svg",
+      "size": [
+        24,
+        24
+      ],
+      "category": "icon",
+      "usage": "icon",
+      "description": "Expand view",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    },
+    {
+      "id": "manager/actions/organizer",
+      "file": "svg/manager/actions/organizer.svg",
+      "size": [
+        24,
+        24
+      ],
+      "category": "icon",
+      "usage": "icon",
+      "description": "Task organizer",
+      "source": "Original vector recreation of user-approved MR Live Manager screenshot (2026-10-26)",
+      "license": "Same as project; original artwork"
+    }
+  ]
+}

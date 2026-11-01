@@ -1,280 +1,227 @@
 #include "BlockEditor.h"
+#include "MRManagerStyle.h"
 
-namespace
+juce::String BlockEditor::tr(const char* s) { return juce::String::fromUTF8(s); }
+struct BlockEditor::Row final : juce::Component
 {
-const char* types[] = { "text", "heading", "list", "checklist", "link" };
-int typeId(const juce::String& type)
-{
-    for (int i = 0; i < 5; ++i) if (type == types[i]) return i + 1;
-    return 1;
-}
-}
-juce::String BlockEditor::tr(const char* value) { return juce::String::fromUTF8(value); }
+    BlockEditor& owner;
+    arranger::WorkspaceBlock original;
+    juce::TextEditor text;
+    juce::TextButton handle, link;
+    juce::ToggleButton checked;
+    Row(BlockEditor& editor, arranger::WorkspaceBlock block) : owner(editor), original(std::move(block))
+    {
+        addAndMakeVisible(handle); handle.setButtonText(juce::String::fromUTF8("⋮⋮")); handle.getProperties().set("mrIconOnly", true);
+        handle.setTooltip(BlockEditor::tr("Тип, порядок и действия блока"));
+        handle.onClick = [this] { owner.menu(original.id); };
+        addAndMakeVisible(text);
+        text.setMultiLine(true); text.setReturnKeyStartsNewLine(false);
+        text.setScrollbarsShown(false); text.setIndents(2, 3);
+        text.setColour(juce::TextEditor::backgroundColourId, juce::Colours::transparentBlack);
+        text.setColour(juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
+        text.setColour(juce::TextEditor::focusedOutlineColourId, juce::Colours::transparentBlack);
+        text.setColour(juce::TextEditor::shadowColourId, juce::Colours::transparentBlack);
+        text.setColour(juce::TextEditor::textColourId, mr::colour(mr::tokens::bright));
+        text.setFont(juce::FontOptions(original.type == "heading" ? 23.0f : 15.0f));
+        text.setText(original.text.isNotEmpty() ? original.text : original.name, false);
+        text.setTextToShowWhenEmpty(BlockEditor::tr("Введите текст или / для выбора типа"), mr::colour(mr::tokens::muted));
+        text.addKeyListener(&owner);
+        text.onTextChange = [this]
+        {
+            if (owner.loading) return;
+            owner.capture(); owner.startTimer(500); owner.layoutRows();
+            if (text.getText() == "/") owner.menu(original.id, true);
+        };
+        text.onReturnKey = [this]
+        {
+            juce::Component::SafePointer<BlockEditor> safe(&owner); const auto id = original.id;
+            juce::MessageManager::callAsync([safe, id] { if (safe) safe->addAfter(id); });
+        };
+        addAndMakeVisible(checked); checked.setToggleState(original.checked, juce::dontSendNotification);
+        checked.setVisible(original.type == "checklist");
+        checked.onClick = [this] { owner.capture(); owner.flush(); };
+        addAndMakeVisible(link); link.setButtonText(juce::String::fromUTF8("↗")); link.getProperties().set("mrIconOnly", true);
+        link.setTooltip(BlockEditor::tr("Открыть ссылку")); link.setVisible(original.type == "link");
+        link.onClick = [this]
+        {
+            if (owner.flush().failed()) return;
+            const auto url = original.url.trim();
+            if (url.startsWithIgnoreCase("https://") || url.startsWithIgnoreCase("http://")) juce::URL(url).launchInDefaultBrowser();
+        };
+    }
+    int wantedHeight(int width) const
+    {
+        const auto lines = juce::StringArray::fromLines(text.getText()); int count = 0;
+        const int chars = juce::jmax(12, (width - 76) / (original.type == "heading" ? 12 : 8));
+        for (const auto& line : lines) count += juce::jmax(1, (line.length() + chars - 1) / chars);
+        return juce::jmax(original.type == "heading" ? 40 : 30, count * (original.type == "heading" ? 28 : 21) + 8);
+    }
+    void resized() override
+    {
+        auto r = getLocalBounds(); handle.setBounds(r.removeFromLeft(26).withHeight(26));
+        if (original.type == "list") r.removeFromLeft(18);
+        if (checked.isVisible()) checked.setBounds(r.removeFromLeft(24).withHeight(28));
+        if (link.isVisible()) link.setBounds(r.removeFromRight(26).withHeight(26));
+        text.setBounds(r);
+    }
+    void paint(juce::Graphics& g) override
+    {
+        if (original.type == "list") { g.setColour(mr::colour(mr::tokens::muted)); g.fillEllipse(26, 12, 4, 4); }
+    }
+};
 BlockEditor::BlockEditor()
 {
-    for (auto* combo : { &newKind, &kind })
-    {
-        addAndMakeVisible(combo);
-        combo->addItemList({tr("Текст"), tr("Заголовок"), tr("Список"), tr("Чек-лист"), tr("Ссылка")}, 1);
-        combo->setSelectedId(1, juce::dontSendNotification);
-        combo->addKeyListener(this);
-    }
-    const char* buttonNames[] = {"+ Блок", "Удалить", "Выше", "Ниже", "Отмена", "Повтор", "Сохранить", "Перечитать", "Открыть"};
-    int index = 0;
-    for (auto* button : { &add, &remove, &up, &down, &undoButton, &redoButton, &saveButton, &reloadButton, &openLink })
-    {
-        button->setButtonText(tr(buttonNames[index++]));
-        addAndMakeVisible(button);
-        button->addKeyListener(this);
-    }
-    nameLabel.setText(tr("Имя блока"), juce::dontSendNotification);
-    typeLabel.setText(tr("Тип"), juce::dontSendNotification);
-    textLabel.setText(tr("Текст"), juce::dontSendNotification);
-    urlLabel.setText("URL", juce::dontSendNotification);
-    hint.setText(tr("Добавьте блок и выберите его для редактирования."), juce::dontSendNotification);
-    checked.setButtonText(tr("Отмечено"));
-    addAndMakeVisible(checked);
-    checked.addKeyListener(this);
-    for (auto* label : { &nameLabel, &typeLabel, &textLabel, &urlLabel, &status, &hint })
-    {
-        addAndMakeVisible(label);
-        label->setColour(juce::Label::textColourId, juce::Colour(0xffb8c5d5));
-    }
-    for (auto* field : { &nameField, &textField, &urlField })
-    {
-        addAndMakeVisible(field);
-        field->setFont(juce::FontOptions(17.0f));
-        field->setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff202832));
-        field->setColour(juce::TextEditor::textColourId, juce::Colour(0xffe6edf5));
-        field->onTextChange = [this] { stageFields(); };
-        field->addKeyListener(this);
-    }
-    textField.setMultiLine(true);
-    textField.setReturnKeyStartsNewLine(true);
-    nameField.setTextToShowWhenEmpty(tr("Необязательное имя"), juce::Colour(0xff8b9cad));
-    urlField.setTextToShowWhenEmpty("https://...", juce::Colour(0xff8b9cad));
-    addAndMakeVisible(list);
-    list.setRowHeight(64);
-    list.setColour(juce::ListBox::backgroundColourId, juce::Colour(0xff202832));
-    list.addKeyListener(this);
+    addAndMakeVisible(viewport); viewport.setViewedComponent(&document, false);
+    document.addAndMakeVisible(addLine); addLine.setButtonText(tr("+ Написать…"));
+    addLine.setTooltip(tr("Добавить абзац. Внутри текста: Enter — следующий блок, Shift+Enter — перенос, / — тип."));
+    addLine.onClick = [this] { addAfter(rows.empty() ? juce::String() : rows.back()->original.id); };
+    addAndMakeVisible(feedback); feedback.setColour(juce::Label::textColourId, mr::colour(mr::tokens::muted));
     addKeyListener(this);
-    add.onClick = [this] { addBlock(); };
-    remove.onClick = [this] { deleteBlock(); };
-    up.onClick = [this] { moveBlock(-1); };
-    down.onClick = [this] { moveBlock(1); };
-    undoButton.onClick = [this] { history(false); };
-    redoButton.onClick = [this] { history(true); };
-    saveButton.onClick = [this] { flush(); };
-    reloadButton.onClick = [this]
-    {
-        stopTimer();
-        juce::Component::SafePointer<BlockEditor> safe(this);
-        juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::QuestionIcon,
-            tr("Перечитать страницу"), tr("Отбросить несохранённый ввод и загрузить сохранённые блоки?"),
-            tr("Перечитать"), tr("Отмена"), this,
-            juce::ModalCallbackFunction::create([safe](int result)
-            {
-                if (safe == nullptr) return;
-                if (result != 1) { if (safe->session.dirty()) safe->startTimer(500); return; }
-                const auto loaded = safe->session.reload();
-                safe->updateStatus(loaded);
-                if (loaded.wasOk()) safe->refreshRows(true);
-            }));
-    };
-    kind.onChange = [this] { stageFields(); showBlock(); };
-    checked.onClick = [this] { stageFields(); flush(); };
-    openLink.onClick = [this]
-    {
-        if (flush().failed()) return;
-        const auto url = urlField.getText().trim();
-        if (url.startsWithIgnoreCase("https://") || url.startsWithIgnoreCase("http://"))
-            juce::URL(url).launchInDefaultBrowser();
-        else updateStatus(juce::Result::fail(tr("Для открытия нужна ссылка http:// или https://.")));
-    };
-    refreshRows(true);
 }
-void BlockEditor::paint(juce::Graphics& g) { g.fillAll(juce::Colour(0xff1d232b)); }
+BlockEditor::~BlockEditor() { stopTimer(); viewport.setViewedComponent(nullptr, false); }
+void BlockEditor::paint(juce::Graphics& g) { g.fillAll(mr::colour(mr::tokens::canvas)); }
 void BlockEditor::resized()
 {
-    auto area = getLocalBounds();
-    auto top = area.removeFromTop(34);
-    newKind.setBounds(top.removeFromLeft(126).reduced(2));
-    add.setBounds(top.removeFromLeft(86).reduced(2));
-    undoButton.setBounds(top.removeFromLeft(82).reduced(2));
-    redoButton.setBounds(top.removeFromLeft(82).reduced(2));
-    saveButton.setBounds(top.removeFromLeft(100).reduced(2));
-    reloadButton.setBounds(top.removeFromLeft(112).reduced(2));
-    status.setBounds(area.removeFromBottom(28));
-    area.removeFromTop(8);
-    auto left = area.removeFromLeft(juce::jmin(260, getWidth() / 3));
-    auto actions = left.removeFromBottom(34);
-    up.setBounds(actions.removeFromLeft(68).reduced(2));
-    down.setBounds(actions.removeFromLeft(68).reduced(2));
-    remove.setBounds(actions.reduced(2));
-    list.setBounds(left);
-    area.removeFromLeft(14);
-    hint.setBounds(area.withHeight(70));
-    nameLabel.setBounds(area.removeFromTop(24));
-    nameField.setBounds(area.removeFromTop(30));
-    auto typeRow = area.removeFromTop(38);
-    typeLabel.setBounds(typeRow.removeFromLeft(38));
-    kind.setBounds(typeRow.removeFromLeft(146).reduced(3));
-    checked.setBounds(typeRow.reduced(3));
-    textLabel.setBounds(area.removeFromTop(24));
-    auto linkRow = area.removeFromBottom(34);
-    auto linkLabel = area.removeFromBottom(24);
-    urlLabel.setBounds(linkLabel);
-    openLink.setBounds(linkRow.removeFromRight(90).reduced(2));
-    urlField.setBounds(linkRow.reduced(2));
-    textField.setBounds(area.reduced(0, 4));
+    auto r = getLocalBounds(); feedback.setBounds(r.removeFromBottom(22)); viewport.setBounds(r); layoutRows();
+}
+void BlockEditor::layoutRows()
+{
+    const int width = juce::jmax(100, viewport.getWidth() - 18); int y = 8;
+    for (auto& row : rows) { const int h = row->wantedHeight(width); row->setBounds(4, y, width - 12, h); y += h + 4; }
+    addLine.setBounds(30, y + 4, juce::jmax(100, width - 44), 28);
+    document.setSize(width, juce::jmax(viewport.getHeight(), y + 48));
+}
+void BlockEditor::capture()
+{
+    if (loading || boundId.isEmpty()) return;
+    auto blocks = session.blocks();
+    for (auto& block : blocks)
+        for (const auto& row : rows) if (block.id == row->original.id)
+        {
+            // Old name-only blocks remain unchanged until their visible text is edited.
+            const auto shown = row->original.text.isNotEmpty() ? row->original.text : row->original.name;
+            if (row->text.getText() != shown)
+            {
+                block.text = row->text.getText();
+                if (block.text.isEmpty() || (row->original.text.isEmpty() && row->original.name.isNotEmpty()) || row->original.name == row->original.text) block.name = block.text;
+            }
+            block.checked = row->checked.getToggleState(); break;
+        }
+    session.stage(std::move(blocks));
+}
+void BlockEditor::refresh(const juce::String& focusId)
+{
+    loading = true; rows.clear();
+    for (const auto& block : session.blocks())
+    {
+        auto row = std::make_unique<Row>(*this, block); document.addAndMakeVisible(row.get()); rows.push_back(std::move(row));
+    }
+    loading = false; layoutRows();
+    for (auto& row : rows) if (row->original.id == focusId) { row->text.grabKeyboardFocus(); row->text.moveCaretToEnd(); }
 }
 juce::Result BlockEditor::bind(const juce::String& id, Session::Read read, Session::Write write)
 {
-    stopTimer();
-    const auto result = session.bind(id, std::move(read), std::move(write));
-    updateStatus(result);
-    if (result.failed()) return result;
-    if (boundId != id) { selected = -1; selectedId.clear(); boundId = id; }
-    refreshRows(!session.dirty());
-    if (session.dirty()) startTimer(500);
-    return result;
+    capture(); const auto old = session.blocks(); const auto result = session.bind(id, std::move(read), std::move(write));
+    updateStatus(result); if (result.failed()) return result;
+    if (id != boundId || old != session.blocks()) { boundId = id; refresh(); }
+    addLine.setEnabled(id.isNotEmpty()); return result;
 }
 juce::Result BlockEditor::flush()
 {
-    stageFields(); // Capture current widgets even before queued TextEditor notifications.
-    stopTimer();
-    const auto result = session.flush();
-    updateStatus(result);
-    refreshRows(false);
+    capture(); stopTimer(); const auto result = session.flush(); updateStatus(result);
+    if (result.wasOk()) for (auto& row : rows) for (const auto& block : session.blocks()) if (row->original.id == block.id) row->original = block;
     return result;
 }
+void BlockEditor::timerCallback() { flush(); }
 void BlockEditor::updateStatus(const juce::Result& result)
 {
-    status.setText(result.failed() ? tr("Не сохранено: ") + result.getErrorMessage()
-        : session.dirty() ? tr("Изменения ожидают сохранения…") : tr("Сохранено"), juce::dontSendNotification);
-    status.setColour(juce::Label::textColourId, result.failed() ? juce::Colour(0xffffab77) : juce::Colour(0xff9eafc3));
-    undoButton.setEnabled(session.canUndo());
-    redoButton.setEnabled(session.canRedo());
+    feedback.setText(result.failed() ? tr("Не сохранено: ") + result.getErrorMessage() : juce::String(), juce::dontSendNotification);
+    feedback.setColour(juce::Label::textColourId, mr::colour(mr::tokens::blockedDot));
 }
-void BlockEditor::timerCallback() { flush(); }
-int BlockEditor::getNumRows() { return static_cast<int>(session.blocks().size()); }
-void BlockEditor::paintListBoxItem(int index, juce::Graphics& g, int width, int height, bool selectedRow)
+void BlockEditor::addAfter(const juce::String& after, const juce::String& type, const juce::String& content)
 {
-    if (index < 0 || index >= getNumRows()) return;
-    const auto& block = session.blocks()[static_cast<size_t>(index)];
-    if (selectedRow) { g.setColour(juce::Colour(0xff33475f)); g.fillRoundedRectangle(2, 1, static_cast<float>(width - 4), static_cast<float>(height - 2), 5); }
-    g.setColour(juce::Colour(0xffe6edf5));
-    g.setFont(juce::FontOptions(block.type == "heading" ? 18.0f : 15.0f));
-    auto title = block.name.isNotEmpty() ? block.name : block.text.upToFirstOccurrenceOf("\n", false, false);
-    if (title.isEmpty()) title = tr("Новый блок");
-    if (block.type == "checklist") title = (block.checked ? tr("☑ ") : tr("☐ ")) + title;
-    if (block.type == "list") title = tr("• ") + title;
-    g.drawText(title, 10, 2, width - 20, 30, juce::Justification::centredLeft, true);
-    g.setColour(juce::Colour(0xff9eafc3)); g.setFont(juce::FontOptions(13.0f));
-    const char* labels[] = {"Текст", "Заголовок", "Список", "Чек-лист", "Ссылка"};
-    g.drawText(juce::String(index + 1) + " · " + tr(labels[typeId(block.type) - 1]), 10, 33, width - 20, 24, juce::Justification::centredLeft, true);
+    if (boundId.isEmpty() || flush().failed()) return;
+    auto blocks = session.blocks(); auto it = std::find_if(blocks.begin(), blocks.end(), [&](const auto& b) { return b.id == after; });
+    arranger::WorkspaceBlock block; block.id = juce::Uuid().toString(); block.type = type; block.text = content;
+    const auto id = block.id; blocks.insert(it == blocks.end() ? blocks.end() : std::next(it), std::move(block));
+    session.stage(std::move(blocks)); const auto result = session.flush(); updateStatus(result); refresh(id);
 }
-void BlockEditor::selectedRowsChanged(int index)
+juce::Result BlockEditor::undo() { return history(false); }
+juce::Result BlockEditor::redo() { return history(true); }
+juce::Result BlockEditor::history(bool redo)
 {
-    if (loading || index == selected) return;
-    if (flush().failed()) { loading = true; list.selectRow(selected); loading = false; return; }
-    selected = index;
-    selectedId = index >= 0 && index < getNumRows() ? session.blocks()[static_cast<size_t>(index)].id : juce::String();
-    showBlock();
+    const auto saved = flush(); if (saved.failed()) return saved;
+    const auto result = redo ? session.redo() : session.undo(); updateStatus(result);
+    if (result.wasOk()) refresh(); return result;
 }
-void BlockEditor::refreshRows(bool showFields)
+bool BlockEditor::keyPressed(const juce::KeyPress& key, juce::Component* component)
 {
-    loading = true;
-    selected = -1;
-    for (int i = 0; i < getNumRows(); ++i)
-        if (session.blocks()[static_cast<size_t>(i)].id == selectedId) selected = i;
-    if (selected < 0 && getNumRows() > 0) { selected = 0; selectedId = session.blocks()[0].id; }
-    if (getNumRows() == 0) selectedId.clear();
-    list.updateContent();
-    list.deselectAllRows();
-    if (selected >= 0) list.selectRow(selected);
-    list.repaint();
-    loading = false;
-    if (showFields) showBlock();
-    up.setEnabled(selected > 0); down.setEnabled(selected >= 0 && selected + 1 < getNumRows());
-    remove.setEnabled(selected >= 0);
-    undoButton.setEnabled(session.canUndo()); redoButton.setEnabled(session.canRedo());
-}
-void BlockEditor::showBlock()
-{
-    loading = true;
-    const bool exists = selected >= 0 && selected < getNumRows();
-    for (auto* component : std::initializer_list<juce::Component*>{ &nameLabel, &nameField, &typeLabel, &kind, &textLabel, &textField })
-        component->setVisible(exists);
-    hint.setVisible(!exists);
-    checked.setVisible(false); urlLabel.setVisible(false); urlField.setVisible(false); openLink.setVisible(false);
-    fieldsId.clear();
-    if (exists)
+    if (key.getModifiers().isCommandDown() || key.getModifiers().isCtrlDown())
     {
-        const auto& block = session.blocks()[static_cast<size_t>(selected)];
-        fieldsId = block.id;
-        nameField.setText(block.name, false); textField.setText(block.text, false); urlField.setText(block.url, false);
-        kind.setSelectedId(typeId(block.type), juce::dontSendNotification);
-        checked.setToggleState(block.checked, juce::dontSendNotification);
-        checked.setVisible(block.type == "checklist");
-        const bool link = block.type == "link";
-        for (auto* component : std::initializer_list<juce::Component*>{ &urlLabel, &urlField, &openLink }) component->setVisible(link);
-        textField.setFont(juce::FontOptions(block.type == "heading" ? 23.0f : 17.0f));
+        if (key.getKeyCode() == 'z' || key.getKeyCode() == 'Z')
+        {
+            juce::Component::SafePointer<BlockEditor> safe(this); const bool redo = key.getModifiers().isShiftDown();
+            juce::MessageManager::callAsync([safe,redo] { if (safe) safe->history(redo); }); return true;
+        }
+        if (key.getKeyCode() == 'y' || key.getKeyCode() == 'Y') { juce::Component::SafePointer<BlockEditor> safe(this); juce::MessageManager::callAsync([safe] { if (safe) safe->history(true); }); return true; }
+        if (key.getKeyCode() == 's' || key.getKeyCode() == 'S') { flush(); return true; }
     }
-    loading = false;
-    up.setEnabled(selected > 0); down.setEnabled(selected >= 0 && selected + 1 < getNumRows()); remove.setEnabled(exists);
-}
-void BlockEditor::stageFields()
-{
-    if (loading || selected < 0 || selected >= getNumRows()) return;
-    if (session.blocks()[static_cast<size_t>(selected)].id != fieldsId) return;
-    auto blocks = session.blocks();
-    auto& block = blocks[static_cast<size_t>(selected)];
-    block.name = nameField.getText(); block.text = textField.getText(); block.url = urlField.getText();
-    block.type = types[juce::jlimit(1, 5, kind.getSelectedId()) - 1]; block.checked = checked.getToggleState();
-    session.stage(std::move(blocks)); list.repaint();
-    updateStatus(juce::Result::ok());
-    if (session.dirty()) startTimer(500);
-}
-void BlockEditor::addBlock()
-{
-    if (flush().failed()) return;
-    auto blocks = session.blocks();
-    selectedId = juce::Uuid().toString();
-    arranger::WorkspaceBlock block { selectedId, types[juce::jlimit(1, 5, newKind.getSelectedId()) - 1], {}, {}, false, {} };
-    blocks.insert(blocks.begin() + (selected >= 0 ? selected + 1 : static_cast<int>(blocks.size())), block);
-    session.stage(std::move(blocks));
-    flush(); refreshRows(true);
-    if (selected >= 0) textField.grabKeyboardFocus();
-}
-void BlockEditor::deleteBlock()
-{
-    if (flush().failed() || selected < 0) return;
-    auto blocks = session.blocks();
-    blocks.erase(blocks.begin() + selected); selectedId.clear();
-    session.stage(std::move(blocks)); flush(); refreshRows(true);
-}
-void BlockEditor::moveBlock(int amount)
-{
-    if (flush().failed() || selected < 0 || selected + amount < 0 || selected + amount >= getNumRows()) return;
-    auto blocks = session.blocks();
-    std::swap(blocks[static_cast<size_t>(selected)], blocks[static_cast<size_t>(selected + amount)]);
-    session.stage(std::move(blocks)); flush(); refreshRows(true);
-}
-void BlockEditor::history(bool forwards)
-{
-    stageFields();
-    stopTimer();
-    const auto result = forwards ? session.redo() : session.undo();
-    updateStatus(result);
-    if (result.wasOk()) refreshRows(true);
-}
-bool BlockEditor::keyPressed(const juce::KeyPress& key, juce::Component*)
-{
-    if (!key.getModifiers().isCtrlDown()) return false;
-    const int code = key.getKeyCode();
-    if (code == 'Z') { history(key.getModifiers().isShiftDown()); return true; }
-    if (code == 'Y') { history(true); return true; }
-    if (code == 'S') { flush(); return true; }
+    if (key.getKeyCode() == juce::KeyPress::returnKey && key.getModifiers().isShiftDown())
+        if (auto* field = dynamic_cast<juce::TextEditor*>(component)) { field->insertTextAtCaret("\n"); return true; }
     return false;
+}
+void BlockEditor::menu(const juce::String& id, bool slash)
+{
+    capture();
+    juce::PopupMenu menu; menu.setLookAndFeel(&getLookAndFeel());
+    const char* labels[] = {"Текст", "Заголовок", "Список", "Чек-лист", "Ссылка"};
+    for (int i = 0; i < 5; ++i) menu.addItem(10 + i, tr(labels[i]));
+    menu.addSeparator(); menu.addItem(1, tr("Добавить абзац ниже")); menu.addItem(2, tr("Дублировать"));
+    menu.addItem(3, tr("Выше")); menu.addItem(4, tr("Ниже")); menu.addItem(5, tr("Удалить"));
+    menu.addSeparator(); menu.addItem(6, tr("Отменить"), session.canUndo()); menu.addItem(7, tr("Повторить"), session.canRedo());
+    menu.addItem(8, tr("Перечитать сохранённое…")); menu.addItem(9, tr("Свойства ссылки…"));
+    juce::Component::SafePointer<BlockEditor> safe(this);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this), [safe, id, slash](int action)
+    {
+        if (!safe) return;
+        if (!action) return;
+        if (action == 6 || action == 7) { safe->history(action == 7); return; }
+        if (action == 8)
+        {
+            juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::QuestionIcon, tr("Перечитать страницу"),
+                tr("Отбросить несохранённое содержимое и загрузить сохранённую версию?"), tr("Перечитать"), tr("Отмена"), safe,
+                juce::ModalCallbackFunction::create([safe](int choice) { if (safe && choice == 1) { safe->stopTimer(); const auto r = safe->session.reload(); safe->updateStatus(r); if (r.wasOk()) safe->refresh(); } }));
+            return;
+        }
+        if (safe->flush().failed()) return;
+        auto blocks = safe->session.blocks(); auto it = std::find_if(blocks.begin(), blocks.end(), [&](const auto& b) { return b.id == id; });
+        if (it == blocks.end()) return;
+        const auto index = static_cast<size_t>(std::distance(blocks.begin(), it));
+        if (action == 1) { safe->addAfter(id); return; }
+        if (action == 9)
+        {
+            const auto expected = *it;
+            auto* dialog = new juce::AlertWindow(tr("Ссылка"), {}, juce::MessageBoxIconType::NoIcon, safe);
+            dialog->addTextEditor("url", it->url, "URL"); dialog->addButton(tr("Сохранить"), 1); dialog->addButton(tr("Отмена"), 0);
+            dialog->enterModalState(true, juce::ModalCallbackFunction::create([safe, dialog, id, expected](int result)
+            {
+                if (!safe || result != 1 || safe->flush().failed()) return;
+                auto values = safe->session.blocks();
+                for (auto& b : values) if (b.id == id && b == expected) { b.url = dialog->getTextEditorContents("url"); b.type = "link"; safe->session.stage(values); if (safe->flush().wasOk()) safe->refresh(id); return; }
+            }), true); return;
+        }
+        if (action >= 10 && action < 15)
+        {
+            const char* types[] = {"text", "heading", "list", "checklist", "link"}; it->type = types[action - 10];
+            if (slash && it->text == "/") it->text.clear();
+        }
+        else if (action == 2) { auto copy = *it; copy.id = juce::Uuid().toString(); blocks.insert(std::next(it), copy); }
+        else if (action == 3 && index > 0) std::swap(blocks[index], blocks[index - 1]);
+        else if (action == 4 && index + 1 < blocks.size()) std::swap(blocks[index], blocks[index + 1]);
+        else if (action == 5) blocks.erase(it);
+        else return;
+        safe->session.stage(std::move(blocks));
+        // Commit the staged structural change without restaging the still-visible widgets.
+        safe->stopTimer(); const auto result = safe->session.flush(); safe->updateStatus(result); safe->refresh(id);
+    });
 }
