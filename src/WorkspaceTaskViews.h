@@ -138,7 +138,7 @@ inline TaskViewOptions decodeTaskView(const juce::String& json)
     if (sort < 0 || sort > 3) result.sort = TaskViewSort::manual;
     else result.sort = static_cast<TaskViewSort>(sort);
     if (result.priority < 0 || result.priority > 4) result.priority = 0;
-    if (result.status.isNotEmpty() && parseStatus(result.status) == Status::unmarked)
+    if (result.status.isNotEmpty() && parseStatus(result.status.toStdString()) == Status::unmarked)
         result.status.clear();
     return result;
 }
