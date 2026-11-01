@@ -77,8 +77,18 @@ public:
     Icons()
     {
         for (const auto& source : assets::icons)
+        {
             if (auto drawable = juce::Drawable::createFromSVGString(juce::String::fromUTF8(source.xml)))
+            {
+                // Neutral UI action symbols in the pinned SVG pack still use
+                // the old pale-blue focus colour. Retint only cached Manager
+                // drawables at startup; do not alter source/generated assets
+                // or meaningful status glyphs (e.g. WIP blue, DONE green).
+                if (!juce::String(source.id).startsWith("manager/status/"))
+                    drawable->replaceColour(juce::Colour(0xff91bbee), colour(tokens::focus));
                 cache.emplace(source.id, std::move(drawable));
+            }
+        }
     }
     void draw(const char* id, juce::Graphics& g, juce::Rectangle<float> bounds)
     {
