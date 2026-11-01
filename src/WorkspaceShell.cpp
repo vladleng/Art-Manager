@@ -615,13 +615,16 @@ void WorkspaceShell::loadTaskViewSettings(const juce::String& saved)
     taskViews.clear();
     const auto raw = juce::JSON::parse(saved);
     if (auto* object = raw.getDynamicObject())
-        if (auto* views = object->getProperty("views").getArray())
+    {
+        const auto serializedViews = object->getProperty("views");
+        if (auto* views = serializedViews.getArray())
             for (const auto& item : *views)
             {
                 const auto key = item.getProperty("key", {}).toString();
                 if (key == "view:tasks" || key.startsWith("page:"))
                     taskViews[key] = arranger::decodeTaskView(item.getProperty("options", {}).toString());
             }
+    }
 }
 void WorkspaceShell::saveTaskViewSettings()
 {
