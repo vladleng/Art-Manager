@@ -592,3 +592,118 @@ void WorkspaceShell::itemDropped(const SourceDetails& source)
             destination, {}); }))
         select("pageTasks:" + destination);
 }
+
+
+juce::String WorkspaceShell::taskViewKey() const
+{
+    if (viewKey.startsWith("page:") || viewKey.startsWith("pageTasks:") || viewKey.startsWith("pageBlocks:"))
+        return "page:" + selectedPage();
+    return viewKey == "view:legacy" ? "view:legacy" : "view:tasks";
+}
+void WorkspaceShell::loadTaskViewSettings(const juce::String& saved)
+{
+    taskViews.clear();
+    const auto raw = juce::JSON::parse(saved);
+    if (auto* object = raw.getDynamicObject())
+    {
+        const auto& properties = object->getProperties();
+        for (int i = 0; i < properties.size(); ++i)
+        {
+            const auto key = properties.getName(i).toString();
+            if (key == "view:tasks" || key.startsWith("page:"))
+                taskViews[key] = arranger::decodeTaskView(properties.getValueAt(i).toString());
+        }
+    }
+}
+void WorkspaceShell::saveTaskViewSettings()
+{
+    if (!persistTaskViews) return;
+    auto result = std::make_unique<juce::DynamicObject>();
+    for (const auto& [key, options] : taskViews)
+        if (key == "view:tasks" || key.startsWith("page:"))
+            result->setProperty(juce::Identifier(key), arranger::encodeTaskView(options));
+    persistTaskViews(juce::JSON::toString(juce::var(result.release())));
+}
+void WorkspaceShell::updateTaskProjection()
+{
+    const auto options = taskViews[taskViewKey()];
+    applyingView = true;
+    if (searchBox.getText() != options.search) searchBox.setText(options.search, false);
+    applyingView = false;
+    filterButton.setButtonText(options.status.isNotEmpty() || options.priority > 0
+        ? text("Фильтр •") : text("Фильтр"));
+    sortButton.setButtonText(options.sort == arranger::TaskViewSort::manual ? text("Сортировка")
+        : text("Сорт •"));
+    clearButton.setButtonText(text("Сброс"));
+    const bool any = options.search.isNotEmpty() || options.status.isNotEmpty()
+        || options.priority != 0 || options.sort != arranger::TaskViewSort::manual;
+    clearButton.setEnabled(any);
+    tasks.setViewOptions(options);
+    tasks.setTasks(arranger::projectTaskView(model, taskReferences, options));
+    nav.repaint();
+}
+void WorkspaceShell::showFilterMenu()
+{
+    if (!flushEdits()) return;
+    const auto options = taskViews[taskViewKey()];
+    juce::PopupMenu menu;
+    menu.setLookAndFeel(&getLookAndFeel());
+    juce::PopupMenu statuses;
+    statuses.addItem(100, text("Все статусы"), true, options.status.isEmpty());
+    int idx = 101;
+    for (auto st : {arranger::Status::pool, arranger::Status::todo, arranger::Status::wip,
+                    arranger::Status::draft, arranger::Status::wait, arranger::Status::done,
+                    arranger::Status::blocked})
+    {
+        statuses.addItem(idx++, arranger::label(st), true,
+            options.status == arranger::label(st));
+    }
+    juce::PopupMenu priorities;
+    priorities.addItem(200, text("Все приоритеты"), true, options.priority == 0);
+    for (int priority = 1; priority <= 4; ++priority)
+        priorities.addItem(200 + priority, "P" + juce::String(priority), true,
+            options.priority == priority);
+    menu.addSubMenu(text("Статус"), statuses);
+    menu.addSubMenu(text("Приоритет"), priorities);
+    menu.addSeparator();
+    menu.addItem(1, text("Очистить фильтры"));
+    juce::Component::SafePointer<WorkspaceShell> safe(this);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&filterButton),
+        [safe](int selected)
+        {
+            if (!safe || selected == 0) return;
+            auto& state = safe->taskViews[safe->taskViewKey()];
+            if (selected == 1) { state.status.clear(); state.priority = 0; }
+            else if (selected >= 100 && selected <= 107)
+            {
+                const juce::String statuses[] = {"", "POOL", "TODO", "WIP", "DRAFT", "WAIT", "DONE", "BLOCKED"};
+                state.status = statuses[selected - 100];
+            }
+            else if (selected >= 200 && selected <= 204) state.priority = selected - 200;
+            else return;
+            safe->saveTaskViewSettings();
+            safe->updateTaskProjection();
+        });
+}
+void WorkspaceShell::showSortMenu()
+{
+    if (!flushEdits()) return;
+    juce::PopupMenu menu;
+    menu.setLookAndFeel(&getLookAndFeel());
+    const auto value = taskViews[taskViewKey()].sort;
+    menu.addItem(1, text("Ручной порядок"), true, value == arranger::TaskViewSort::manual);
+    menu.addSeparator();
+    menu.addItem(2, text("Название A → Я"), true, value == arranger::TaskViewSort::nameAsc);
+    menu.addItem(3, text("Название Я → A"), true, value == arranger::TaskViewSort::nameDesc);
+    menu.addItem(4, text("Приоритет P1 → P4"), true, value == arranger::TaskViewSort::priority);
+    juce::Component::SafePointer<WorkspaceShell> safe(this);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&sortButton),
+        [safe](int selected)
+        {
+            if (!safe || selected < 1 || selected > 4) return;
+            safe->taskViews[safe->taskViewKey()].sort =
+                static_cast<arranger::TaskViewSort>(selected - 1);
+            safe->saveTaskViewSettings();
+            safe->updateTaskProjection();
+        });
+}
