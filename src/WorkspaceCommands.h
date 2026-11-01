@@ -1,5 +1,7 @@
 #pragma once
 #include "WorkspaceQueries.h"
+#include <algorithm>
+#include <iterator>
 
 namespace arranger
 {
