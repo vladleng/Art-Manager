@@ -104,7 +104,14 @@ struct WorkspaceQueries
     static bool taskArchived(const WorkspaceModel& model, const juce::String& id)
     {
         const auto* task = model.findTask(id);
-        return !task || task->archivedAt.isNotEmpty() || isArchived(model, task->ownerPageId);
+        if (!task || isArchived(model, task->ownerPageId)) return true;
+        std::set<juce::String> seen;
+        while (task != nullptr)
+        {
+            if (!seen.insert(task->id).second || task->archivedAt.isNotEmpty()) return true;
+            task = task->parentTaskId.isNotEmpty() ? model.findTask(task->parentTaskId) : nullptr;
+        }
+        return false;
     }
     static juce::String taskName(const WorkspaceModel& model, const TaskReference& ref)
     {
@@ -154,7 +161,7 @@ struct WorkspaceQueries
                 for (const auto& item : owner.tasks)
                     result.push_back({owner.id, owner.pageId, item.id});
         for (const auto& item : model.tasks)
-            if (!taskArchived(model, item.id)) result.push_back({{}, item.ownerPageId, item.id});
+            if (item.parentTaskId.isEmpty() && !taskArchived(model, item.id)) result.push_back({{}, item.ownerPageId, item.id});
         return result;
     }
 };

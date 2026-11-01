@@ -34,6 +34,7 @@ struct TaskCheckpoint
 struct WorkspaceTask
 {
     juce::String id, ownerPageId, archivedAt;
+    juce::String parentTaskId; // Optional; old schema-2 task rows remain roots.
     TaskProperties properties;
     std::vector<WorkspaceBlock> blocks;
     std::vector<TaskCheckpoint> checkpoints;
@@ -191,6 +192,23 @@ struct WorkspaceModel
                 || (page.kind == "dawFolder" && folderIds.count(page.id) == 0))
                 return fail("Orphan DAW page.");
 
+        // An ordinary task may own other ordinary tasks. Legacy catalog checkpoints
+        // keep their original representation and IDs; no destructive conversion.
+        for (const auto& task : tasks)
+        {
+            auto parentId = task.parentTaskId;
+            std::set<juce::String> visited {task.id};
+            int depth = 0;
+            while (parentId.isNotEmpty())
+            {
+                if (!visited.insert(parentId).second) return fail("Task hierarchy contains a cycle.");
+                const auto* parent = findTask(parentId);
+                if (!parent || parent->ownerPageId != task.ownerPageId)
+                    return fail("Task parent is missing or belongs to another page.");
+                if (++depth > 8) return fail("Task nesting exceeds eight levels.");
+                parentId = parent->parentTaskId;
+            }
+        }
         auto validStatus = [](Status status) { return parseStatus(label(status)) != Status::unmarked; };
         for (const auto& task : tasks)
         {
@@ -251,6 +269,7 @@ struct WorkspaceModel
         {
             auto t = std::make_unique<juce::DynamicObject>();
             t->setProperty("id", task.id); t->setProperty("ownerPageId", task.ownerPageId);
+            if (task.parentTaskId.isNotEmpty()) t->setProperty("parentTaskId", task.parentTaskId);
             t->setProperty("archivedAt", task.archivedAt);
             t->setProperty("name", task.properties.name); t->setProperty("notes", task.properties.notes);
             t->setProperty("status", label(task.properties.status)); t->setProperty("priority", task.properties.priority);
@@ -393,6 +412,7 @@ struct WorkspaceModel
                 WorkspaceTask task;
                 task.id = t.getProperty("id", {}).toString(); task.ownerPageId = t.getProperty("ownerPageId", {}).toString();
                 task.archivedAt = t.getProperty("archivedAt", {}).toString();
+                task.parentTaskId = t.getProperty("parentTaskId", {}).toString();
                 task.properties.name = t.getProperty("name", {}).toString(); task.properties.notes = t.getProperty("notes", {}).toString();
                 const auto status = t.getProperty("status", {}).toString();
                 task.properties.status = parseStatus(status.toStdString());

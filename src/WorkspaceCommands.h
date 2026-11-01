@@ -1,5 +1,7 @@
 #pragma once
 #include "WorkspaceQueries.h"
+#include <algorithm>
+#include <iterator>
 
 namespace arranger
 {
@@ -88,6 +90,117 @@ public:
         createdId = task.id; model.tasks.push_back(std::move(task));
         return juce::Result::ok();
     }
+    // New child tasks are normal WorkspaceTask records (not destructive conversions
+    // of the pre-existing checkpoint records). Old documents remain readable.
+    juce::Result createSubtask(const juce::String& parentId, juce::String name, juce::String& createdId)
+    {
+        const auto* parent = editableTask(parentId);
+        name = name.trim();
+        if (!parent || name.isEmpty()) return juce::Result::fail("Choose an active parent task and a name.");
+        auto candidate = model;
+        WorkspaceTask child;
+        child.id = juce::Uuid().toString();
+        child.ownerPageId = parent->ownerPageId;
+        child.parentTaskId = parentId;
+        child.properties.name = name;
+        candidate.tasks.push_back(child);
+        const auto result = candidate.validate();
+        if (result.failed()) return result;
+        model.tasks.push_back(std::move(child));
+        createdId = model.tasks.back().id;
+        return juce::Result::ok();
+    }
+
+    // One transaction for within-page ordering and cross-page moves. The new
+    // parent and optional "before" sibling are stable IDs, never row indices.
+    juce::Result moveTask(const juce::String& taskId,
+        const juce::String& expectedOwner, const juce::String& expectedParent,
+        const juce::String& destinationOwner, const juce::String& destinationParent,
+        const juce::String& beforeSibling = {})
+    {
+        const auto* source = editableTask(taskId);
+        if (!source) return juce::Result::fail("Active task was not found.");
+        if (source->ownerPageId != expectedOwner || source->parentTaskId != expectedParent)
+            return juce::Result::fail("Task position changed elsewhere.");
+        if (!editablePage(destinationOwner)) return juce::Result::fail("Destination page is missing or archived.");
+
+        std::set<juce::String> subtree {taskId};
+        bool expanded = true;
+        while (expanded)
+        {
+            expanded = false;
+            for (const auto& item : model.tasks)
+                if (subtree.contains(item.parentTaskId) && subtree.insert(item.id).second)
+                    expanded = true;
+        }
+        if (destinationParent.isNotEmpty())
+        {
+            const auto* parent = model.findTask(destinationParent);
+            if (!parent || WorkspaceQueries::taskArchived(model, destinationParent)
+                || parent->ownerPageId != destinationOwner || subtree.contains(destinationParent))
+                return juce::Result::fail("Invalid destination parent or task cycle.");
+        }
+        if (beforeSibling.isNotEmpty())
+        {
+            const auto* sibling = model.findTask(beforeSibling);
+            if (!sibling || sibling->id == taskId || WorkspaceQueries::taskArchived(model, beforeSibling)
+                || sibling->ownerPageId != destinationOwner || sibling->parentTaskId != destinationParent)
+                return juce::Result::fail("Insertion target is not a sibling.");
+        }
+
+        auto candidate = model;
+        for (auto& item : candidate.tasks)
+        {
+            if (subtree.contains(item.id)) item.ownerPageId = destinationOwner;
+            if (item.id == taskId) item.parentTaskId = destinationParent;
+        }
+
+        // Reorder only the moved root in the storage sequence; descendants
+        // remain linked by parentTaskId and retain their relative order.
+        auto& items = candidate.tasks;
+        const auto sourceIt = std::find_if(items.begin(), items.end(),
+            [&](const auto& item) { return item.id == taskId; });
+        auto moved = std::move(*sourceIt);
+        items.erase(sourceIt);
+        auto insertAt = items.end();
+        if (beforeSibling.isNotEmpty())
+            insertAt = std::find_if(items.begin(), items.end(),
+                [&](const auto& item) { return item.id == beforeSibling; });
+        else
+            for (auto it = items.begin(); it != items.end(); ++it)
+                if (it->ownerPageId == destinationOwner && it->parentTaskId == destinationParent)
+                    insertAt = std::next(it);
+        items.insert(insertAt, std::move(moved));
+        const auto result = candidate.validate(); // Includes parent cycles, depth, ownership and ID guards.
+        if (result.failed()) return result;
+        model.tasks = std::move(candidate.tasks);
+        return juce::Result::ok();
+    }
+
+    juce::Result reorderCheckpoint(const juce::String& taskId,
+        const juce::String& checkpointId, const juce::String& beforeCheckpointId = {})
+    {
+        auto* task = editableTask(taskId);
+        if (!task) return juce::Result::fail("Active task was not found.");
+        auto& checkpoints = task->checkpoints;
+        const auto source = std::find_if(checkpoints.begin(), checkpoints.end(),
+            [&](const auto& cp) { return cp.id == checkpointId && cp.archivedAt.isEmpty(); });
+        if (source == checkpoints.end()) return juce::Result::fail("Active checkpoint was not found.");
+        if (checkpointId == beforeCheckpointId) return juce::Result::ok();
+        if (beforeCheckpointId.isNotEmpty() &&
+            std::none_of(checkpoints.begin(), checkpoints.end(),
+                [&](const auto& cp) { return cp.id == beforeCheckpointId && cp.archivedAt.isEmpty(); }))
+            return juce::Result::fail("Insertion checkpoint is missing or archived.");
+        auto moved = std::move(*source);
+        checkpoints.erase(source);
+        auto destination = beforeCheckpointId.isNotEmpty()
+            ? std::find_if(checkpoints.begin(), checkpoints.end(),
+                [&](const auto& cp) { return cp.id == beforeCheckpointId; })
+            : checkpoints.end();
+        checkpoints.insert(destination, std::move(moved));
+        return juce::Result::ok();
+    }
+
     juce::Result updateTask(const juce::String& id, const TaskProperties& expected, TaskProperties value)
     {
         auto* task = editableTask(id);
@@ -121,7 +234,9 @@ public:
     {
         auto* task = model.findTask(id);
         if (!task || task->archivedAt.isEmpty()) return juce::Result::fail("Archived task was not found.");
-        if (WorkspaceQueries::isArchived(model, task->ownerPageId)) return juce::Result::fail("Restore the owner page first.");
+        if (WorkspaceQueries::isArchived(model, task->ownerPageId)
+            || (task->parentTaskId.isNotEmpty() && WorkspaceQueries::taskArchived(model, task->parentTaskId)))
+            return juce::Result::fail("Restore the owner page and parent task first.");
         task->archivedAt.clear(); return juce::Result::ok();
     }
     juce::Result createCheckpoint(const juce::String& taskId, juce::String name, juce::String& createdId)
@@ -233,7 +348,7 @@ private:
     WorkspaceTask* editableTask(const juce::String& id)
     {
         auto* task = model.findTask(id);
-        return task && task->archivedAt.isEmpty() && !WorkspaceQueries::isArchived(model, task->ownerPageId) ? task : nullptr;
+        return task && !WorkspaceQueries::taskArchived(model, id) ? task : nullptr;
     }
     TaskCheckpoint* checkpoint(const juce::String& taskId, const juce::String& id)
     {
