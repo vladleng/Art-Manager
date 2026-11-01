@@ -17,7 +17,7 @@ jobs:
         shell: pwsh
         run: |
           $cmake = Get-Content 'CMakeLists.txt' -Raw
-          if ($cmake -notmatch 'project\(ArrangerManager VERSION 0\.2\.1 LANGUAGES C CXX\)') {
+          if ($cmake -notmatch 'project\(ArrangerManager VERSION 0\.2\.2 LANGUAGES C CXX\)') {
             throw "CMake version differs from Actions run/artifact version 0.2.2"
           }
           $application = Get-Content 'src/HubApplication.cpp' -Raw
