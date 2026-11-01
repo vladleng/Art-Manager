@@ -344,6 +344,7 @@ void TaskTree::showMenu(arranger::TaskTreeRow row, juce::Point<int> position)
     if (open) menu.addItem(1, task ? tr("Открыть задачу") : tr("Показать сохранённую песню"));
     if (task)
     {
+        if (saveAsTemplate && row.checkpointId.isEmpty()) menu.addItem(6, tr("Сохранить как шаблон…"));
         menu.addItem(2, cp ? tr("Изменить подзадачу / заметки") : tr("Переименовать / свойства / Notes"));
         juce::PopupMenu statusMenu;
         const auto currentStatus = cp ? cp->status : task->properties.status;
@@ -374,6 +375,7 @@ void TaskTree::showMenu(arranger::TaskTreeRow row, juce::Point<int> position)
             if (item == 2) { if (row.checkpointId.isEmpty()) safe->editTask(ref); else safe->editCheckpoint(ref, row.checkpointId); return; }
             if (item == 3) { auto add = row; add.checkpointId.clear(); add.notes = false; add.addChild = true; safe->expanded.insert("task:" + ref.taskId); safe->rebuild(); safe->beginInline(add); return; }
             if (item == 5) { if (safe->create) safe->create(); return; }
+            if (item == 6) { if (safe->saveAsTemplate) safe->saveAsTemplate(ref); return; }
             if (item == 4 && row.checkpointId.isEmpty()) { if (safe->archive) safe->archive(ref.taskId); return; }
             // Resolve fresh values after pending editor fields have been flushed. No model pointers survive a menu.
             if (safe->before && !safe->before()) return;

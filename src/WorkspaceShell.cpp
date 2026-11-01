@@ -1,5 +1,6 @@
 #include "WorkspaceShell.h"
 #include "WorkspaceViewRouting.h"
+#include "WorkspaceTemplateCreation.h"
 
 namespace
 {
@@ -15,8 +16,8 @@ void rowBackground(juce::Graphics& g, int width, int height, bool selected)
 WorkspaceShell::WorkspaceShell(arranger::WorkspaceModel& data,
     Execute executeCommand, juce::String selectedView, std::function<void(juce::String)> saveView,
     juce::String savedColumns, std::function<void(juce::String)> saveColumns,
-    juce::String savedTaskViews, std::function<void(juce::String)> saveTaskViews)
-    : model(data), runCommand(std::move(executeCommand)),
+    juce::String savedTaskViews, std::function<void(juce::String)> saveTaskViews, juce::File templateFile)
+    : model(data), templateStore(std::move(templateFile)), runCommand(std::move(executeCommand)),
       persistView(std::move(saveView)), viewKey(std::move(selectedView)),
       persistTaskViews(std::move(saveTaskViews)),
       tasks(model, runCommand, [this] { return flushEdits(); },
@@ -103,9 +104,11 @@ WorkspaceShell::WorkspaceShell(arranger::WorkspaceModel& data,
         });
     addAndMakeVisible(taskDetails.get());
 
-    addPage.onClick = [this] { promptPage({}); };
+    templateLoad = templateStore.load();
+    tasks.saveAsTemplate = [this](arranger::TaskReference ref) { captureAsTemplate(ref.ownerPageId, ref.taskId); };
+    addPage.onClick = [this] { showTemplateMenu(true); };
     addNote.onClick = [this] { promptPage({}, {}, true); };
-    addChild.onClick = [this] { promptPage(selectedPage()); };
+    addChild.onClick = [this] { showTemplateMenu(true, selectedPage()); };
     rename.onClick = [this] { promptPage({}, selectedPage()); };
     move.onClick = [this] { showMoveMenu(selectedPage(), move.getScreenBounds().getBottomLeft()); };
     archiveButton.onClick = [this] { archivePage(selectedPage()); };
@@ -380,7 +383,9 @@ void WorkspaceShell::promptPage(const juce::String& parentId, const juce::String
 void WorkspaceShell::showPageMenu(const juce::String& id, juce::Point<int> position)
 {
     juce::PopupMenu menu; menu.setLookAndFeel(&getLookAndFeel());
-    menu.addItem(1, text("Новая вложенная страница"));
+    menu.addItem(1, text("Новая вложенная страница…"));
+    if (const auto* page = model.findPage(id); page && page->kind == "page")
+        menu.addItem(7, text("Сохранить как шаблон…"));
     menu.addItem(5, text("Новая вложенная заметка"));
     menu.addItem(2, text("Переименовать"));
     menu.addItem(3, text("Переместить"));
@@ -394,7 +399,8 @@ void WorkspaceShell::showPageMenu(const juce::String& id, juce::Point<int> posit
         [safe, id, position](int item)
         {
             if (safe == nullptr) return;
-            if (item == 1) safe->promptPage(id);
+            if (item == 1) safe->showTemplateMenu(true, id);
+            else if (item == 7) safe->captureAsTemplate(id);
             else if (item == 5) safe->promptPage(id, {}, true);
             else if (item == 2) safe->promptPage({}, id);
             else if (item == 3) safe->showMoveMenu(id, position);
@@ -450,44 +456,113 @@ void WorkspaceShell::openTask(arranger::TaskReference ref)
     // Legacy tasks remain editable in the local catalog; no external .song or DAW is opened.
     select("view:legacy");
 }
-void WorkspaceShell::promptTask()
+void WorkspaceShell::promptTask() { showTemplateMenu(false); }
+
+void WorkspaceShell::showTemplateMenu(bool project, juce::String parentId)
 {
     if (!flushEdits()) return;
-    auto* dialog = new juce::AlertWindow(text("Новая задача"), {}, juce::MessageBoxIconType::NoIcon, this);
-    dialog->addTextEditor("name", {}, text("Название"));
-    std::vector<juce::String> owners;
-    juce::StringArray labels;
-    for (const auto& row : arranger::WorkspaceQueries::activePages(model))
+    if (templateLoad.failed()) { report(templateLoad); return; }
+    auto choices = arranger::builtinTemplates(project);
+    // Empty project remains the first, familiar creation action.
+    if (project)
     {
-        const auto* page = model.findPage(row.id);
-        if (!page || page->kind != "page") continue;
-        owners.push_back(row.id); labels.add(arranger::WorkspaceQueries::breadcrumb(model, row.id));
+        arranger::WorkspaceTemplate blank;
+        blank.content.pages.push_back({juce::Uuid().toString(), {}, text("Пустой проект"), "page", {}, {}});
+        choices.insert(choices.begin(), blank);
     }
-    if (owners.empty()) { delete dialog; report(juce::Result::fail(text("Сначала создайте обычную страницу."))); return; }
-    dialog->addComboBox("owner", labels, text("Страница"));
-    int selected = 1;
-    for (int i = 0; i < static_cast<int>(owners.size()); ++i) if (owners[static_cast<size_t>(i)] == selectedPage()) selected = i + 1;
-    dialog->getComboBoxComponent("owner")->setSelectedId(selected);
-    dialog->addButton(text("Создать"), 1, juce::KeyPress(juce::KeyPress::returnKey));
-    dialog->addButton(text("Отмена"), 0, juce::KeyPress(juce::KeyPress::escapeKey));
-    juce::Component::SafePointer<WorkspaceShell> safe(this);
-    dialog->enterModalState(true, juce::ModalCallbackFunction::create([safe, dialog, owners](int choice)
-    {
-        if (safe == nullptr || choice != 1) return;
-        const int index = dialog->getComboBoxComponent("owner")->getSelectedId() - 1;
-        if (index < 0 || index >= static_cast<int>(owners.size())) return;
-        const auto name = dialog->getTextEditorContents("name"); juce::String created;
-        const auto ownerId = owners[static_cast<size_t>(index)];
-        const auto destinationView = arranger::viewAfterTaskCreation(safe->viewKey, ownerId);
-        if (safe->execute([&](arranger::WorkspaceCommands& cmd)
-            { return cmd.createTask(ownerId, name, created); }))
+    juce::PopupMenu menu; menu.setLookAndFeel(&theme);
+    menu.addSectionHeader(project ? text("Новый проект") : text("Новая задача"));
+    for (int i = 0; i < static_cast<int>(choices.size()); ++i) menu.addItem(100 + i, choices[static_cast<size_t>(i)].title());
+    menu.addSeparator();
+    for (const auto& definition : templateStore.definitions)
+        if (definition.project == project)
         {
-            // execute() already refreshes and shows the new row if this list is
-            // visible. Only switch views if the original screen hid that row.
-            // Never force-open the full-page TaskDetails view on creation.
-            if (safe->viewKey != destinationView) safe->select(destinationView);
+            menu.addItem(100 + static_cast<int>(choices.size()), definition.title());
+            choices.push_back(definition);
         }
-    }), true);
+    menu.addSeparator(); menu.addItem(1, text("+ Новый шаблон…"), templateLoad.wasOk());
+    if (templateLoad.failed()) menu.addItem(2, text("Каталог шаблонов повреждён — файл сохранён"), false);
+    juce::PopupMenu edit, remove;
+    std::vector<arranger::WorkspaceTemplate> custom;
+    for (const auto& definition : templateStore.definitions) if (definition.project == project)
+    {
+        edit.addItem(1000 + static_cast<int>(custom.size()), definition.title());
+        remove.addItem(2000 + static_cast<int>(custom.size()), definition.title());
+        custom.push_back(definition);
+    }
+    if (!custom.empty()) { menu.addSubMenu(text("Редактировать шаблон"), edit); menu.addSubMenu(text("Удалить шаблон"), remove); }
+    juce::Component::SafePointer<WorkspaceShell> safe(this);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(project ? static_cast<juce::Component*>(&addPage) : &tasks)
+        .withStandardItemHeight(28), [safe, project, parentId, choices, custom](int item)
+    {
+        if (!safe) return;
+        if (item == 1)
+        {
+            auto definition = arranger::builtinTemplates(project).front();
+            definition.content.pages.front().title = text("Новый шаблон");
+            if (project) definition.content.tasks.clear();
+            safe->editTemplate(std::move(definition));
+        }
+        else if (item >= 2000 && item < 2000 + static_cast<int>(custom.size()))
+        { const auto result = safe->templateStore.remove(custom[static_cast<size_t>(item - 2000)].id()); if (result.failed()) safe->report(result); }
+        else if (item >= 1000 && item < 1000 + static_cast<int>(custom.size())) safe->editTemplate(custom[static_cast<size_t>(item - 1000)]);
+        else if (item >= 100 && item < 100 + static_cast<int>(choices.size())) safe->createFromTemplate(choices[static_cast<size_t>(item - 100)], parentId);
+    });
+}
+
+void WorkspaceShell::editTemplate(arranger::WorkspaceTemplate definition)
+{
+    if (!flushEdits()) return;
+    if (templateLoad.failed()) { report(templateLoad); return; }
+    juce::Component::SafePointer<WorkspaceShell> safe(this);
+    auto editor = std::make_unique<WorkspaceTemplateEditor>(std::move(definition), [safe](const auto& value)
+    { return safe ? safe->templateStore.put(value) : juce::Result::fail("Workspace closed."); });
+    auto& callout = juce::CallOutBox::launchAsynchronously(std::move(editor), addPage.getScreenBounds(), nullptr);
+    callout.setDismissalMouseClicksAreAlwaysConsumed(true);
+}
+
+void WorkspaceShell::captureAsTemplate(juce::String pageId, juce::String taskId)
+{
+    if (!flushEdits()) return;
+    auto definition = arranger::captureTemplate(model, pageId, taskId);
+    const auto result = definition.validate();
+    if (result.failed()) { report(result); return; }
+    editTemplate(std::move(definition));
+}
+
+void WorkspaceShell::createFromTemplate(arranger::WorkspaceTemplate definition, juce::String parentId)
+{
+    if (!flushEdits()) return;
+    juce::StringArray labels; std::vector<juce::String> owners;
+    int selected = 0;
+    if (!definition.project)
+    {
+        for (const auto& row : arranger::WorkspaceQueries::activePages(model))
+            if (const auto* page = model.findPage(row.id); page && page->kind == "page")
+            {
+                if (row.id == selectedPage()) selected = static_cast<int>(owners.size());
+                owners.push_back(row.id); labels.add(arranger::WorkspaceQueries::breadcrumb(model, row.id));
+            }
+        if (owners.empty()) { report(juce::Result::fail(text("Сначала создайте проект."))); return; }
+    }
+    juce::Component::SafePointer<WorkspaceShell> safe(this);
+    auto panel = std::make_unique<WorkspaceTemplateCreation>(definition.title(), labels, owners, selected,
+        [safe, definition, parentId](juce::String name, juce::String owner)
+        {
+            if (!safe) return juce::Result::fail("Workspace closed.");
+            if (!safe->flushEdits()) return juce::Result::fail("Save pending edits first.");
+            juce::String created;
+            const auto result = safe->runCommand([&](arranger::WorkspaceCommands& cmd)
+                { return cmd.createFromTemplate(definition, definition.project ? parentId : owner, name, created); });
+            if (result.wasOk())
+            {
+                const auto destination = definition.project ? "page:" + created : arranger::viewAfterTaskCreation(safe->viewKey, owner);
+                safe->select(destination);
+            }
+            return result;
+        });
+    auto& callout = juce::CallOutBox::launchAsynchronously(std::move(panel), addPage.getScreenBounds(), nullptr);
+    callout.setDismissalMouseClicksAreAlwaysConsumed(true);
 }
 
 int WorkspaceShell::NavModel::getNumRows() { return static_cast<int>(owner.navigation.size()); }
@@ -502,6 +577,7 @@ void WorkspaceShell::NavModel::paintListBoxItem(int index, juce::Graphics& g, in
         g.drawRoundedRectangle(2.0f, 1.0f, static_cast<float>(width - 4),
             static_cast<float>(height - 2), 4.0f, 2.0f);
     }
+    g.setColour(mr::colour(mr::tokens::bright)); // Drop outline never changes row text.
     const int indent = 10 + juce::jmin(row.depth, 6) * 16;
     g.drawText(row.title, indent, 0, juce::jmax(0, width - indent - 10), height, juce::Justification::centredLeft, true);
 }

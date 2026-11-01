@@ -30,6 +30,7 @@ public:
     void itemDropped(const SourceDetails&) override;
     juce::String columnSettings() const;
     void showTaskMenu(const arranger::TaskReference&, juce::Point<int>);
+    std::function<void(arranger::TaskReference)> saveAsTemplate;
 private:
     int getNumRows() override;
     void paintListBoxItem(int, juce::Graphics&, int, int, bool) override;

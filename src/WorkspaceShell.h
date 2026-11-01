@@ -5,6 +5,7 @@
 #include "BlockEditor.h"
 #include "TaskDetails.h"
 #include "WorkspaceTaskViews.h"
+#include "WorkspaceTemplateEditor.h"
 #include <map>
 
 class WorkspaceShell final : public juce::Component, public juce::DragAndDropContainer,
@@ -15,7 +16,8 @@ public:
     WorkspaceShell(arranger::WorkspaceModel&, Execute,
         juce::String selectedView, std::function<void(juce::String)> saveView,
         juce::String savedColumns = {}, std::function<void(juce::String)> saveColumns = {},
-        juce::String savedTaskViews = {}, std::function<void(juce::String)> saveTaskViews = {});
+        juce::String savedTaskViews = {}, std::function<void(juce::String)> saveTaskViews = {},
+        juce::File templateFile = {});
     ~WorkspaceShell() override;
     void paint(juce::Graphics&) override;
     void resized() override;
@@ -59,6 +61,10 @@ private:
     juce::String selectedPage() const;
     void openTask(arranger::TaskReference);
     void promptTask();
+    void showTemplateMenu(bool project, juce::String parentId = {});
+    void createFromTemplate(arranger::WorkspaceTemplate, juce::String parentId);
+    void editTemplate(arranger::WorkspaceTemplate);
+    void captureAsTemplate(juce::String pageId, juce::String taskId = {});
     void archiveTask(const juce::String&);
     void report(const juce::Result&);
     juce::String taskViewKey() const;
@@ -70,6 +76,8 @@ private:
 
     mr::ManagerTheme theme;
     arranger::WorkspaceModel& model;
+    arranger::WorkspaceTemplateStore templateStore;
+    juce::Result templateLoad = juce::Result::ok();
     Execute runCommand;
     std::function<void(juce::String)> persistView;
     juce::String viewKey;

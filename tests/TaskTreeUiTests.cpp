@@ -1,5 +1,7 @@
 #include "TaskTree.h"
 #include "BlockEditor.h"
+#include "WorkspaceTemplateEditor.h"
+#include "WorkspaceTemplateCreation.h"
 #include <iostream>
 static bool check(bool value, const char* message) { if (!value) std::cerr << message << '\n'; return value; }
 #define REQUIRE(value, message) do { if (!check((value), message)) return 1; } while (false)
@@ -79,6 +81,41 @@ int main()
     bool failWrites = false, allowFlush = true; int opened = 0;
     juce::String widthsSaved;
     mr::ManagerTheme theme;
+    REQUIRE(theme.findColour(juce::PopupMenu::textColourId)
+        == theme.findColour(juce::PopupMenu::highlightedTextColourId),
+        "Hover changes menu text brightness");
+    REQUIRE(theme.findColour(juce::PopupMenu::highlightedBackgroundColourId)
+        == mr::colour(mr::tokens::selected), "Gray menu highlight was removed");
+    // Reused TaskTree editing a definition is isolated from the real workspace.
+    const auto liveBeforeTemplate = model.toJson();
+    auto definition = arranger::builtinTemplates(true)[1];
+    int templateSaves = 0;
+    WorkspaceTemplateEditor templateEditor(definition, [&](const auto& saved)
+    {
+        ++templateSaves;
+        return saved.validate();
+    });
+    templateEditor.setVisible(true);
+    for (float scale : {1.0f, 1.25f, 1.5f, 2.0f})
+    {
+        const auto image = templateEditor.createComponentSnapshot(templateEditor.getLocalBounds(), true, scale);
+        REQUIRE(image.isValid() && image.getWidth() >= 780, "Template editor DPI snapshot failed");
+    }
+    REQUIRE(snapshot(templateEditor, "template-editor.png"), "Template editor preview");
+    REQUIRE(templateSaves == 0 && model.toJson() == liveBeforeTemplate,
+        "Opening a definition changed live data or auto-saved it");
+    juce::String creationName; int creates = 0;
+    WorkspaceTemplateCreation creation("Track", {}, {}, 0, [&](juce::String name, juce::String)
+    {
+        ++creates; creationName = name;
+        return juce::Result::fail("Write failure fixture");
+    });
+    auto* creationField = firstText(creation);
+    REQUIRE(creationField != nullptr, "Template name field missing");
+    creationField->setText("Unsaved project"); creationField->onReturnKey();
+    REQUIRE(creates == 1 && creationName == "Unsaved project"
+        && creationField->getText() == "Unsaved project", "Failed creation lost its draft");
+    REQUIRE(snapshot(creation, "template-create.png"), "Template create preview");
     // MR Live-like near-black header: the title is drawn independently of
     // the generic V4 colour scheme, not with olive-tinted widget background.
     REQUIRE(mr::ManagerTheme::titleBarColour() == juce::Colour(0xff202123),
