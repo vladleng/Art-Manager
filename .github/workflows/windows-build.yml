@@ -1,5 +1,5 @@
 name: Windows App Build
-run-name: Arranger Manager 0.2.0 - ${{ github.ref_name }}
+run-name: Arranger Manager 0.2.1 - ${{ github.ref_name }}
 on:
   push:
     branches: [main]
@@ -17,8 +17,8 @@ jobs:
         shell: pwsh
         run: |
           $cmake = Get-Content 'CMakeLists.txt' -Raw
-          if ($cmake -notmatch 'project\(ArrangerManager VERSION 0\.2\.0 LANGUAGES C CXX\)') {
-            throw "CMake version differs from Actions run/artifact version 0.2.0"
+          if ($cmake -notmatch 'project\(ArrangerManager VERSION 0\.2\.1 LANGUAGES C CXX\)') {
+            throw "CMake version differs from Actions run/artifact version 0.2.1"
           }
           $application = Get-Content 'src/HubApplication.cpp' -Raw
           if ($application -notmatch 'return ARRANGER_MANAGER_VERSION;') {
@@ -27,7 +27,7 @@ jobs:
       - name: Configure
         run: cmake -S . -B build
       - name: Build tests
-        run: cmake --build build --config Release --target ArrangementTagTests SongSnapshotTests SongCatalogTests WorkspaceTests WorkspaceNavigationTests BlockEditorTests GeneralTaskTests TaskTreeUiTests --parallel 2
+        run: cmake --build build --config Release --target ArrangementTagTests SongSnapshotTests SongCatalogTests WorkspaceTests WorkspaceNavigationTests BlockEditorTests GeneralTaskTests TaskDomainTests TaskTreeUiTests --parallel 2
       - name: Test reader, catalog, workspace and tasks
         run: ctest --test-dir build -C Release --output-on-failure
       - name: Capture task table preview
@@ -42,7 +42,7 @@ jobs:
         run: |
           $cmake = Get-Content 'CMakeLists.txt' -Raw
           $version = [regex]::Match($cmake, 'project\(ArrangerManager VERSION (\d+\.\d+\.\d+)').Groups[1].Value
-          if ($version -ne '0.2.0') { throw "Version mismatch: $version" }
+          if ($version -ne '0.2.1') { throw "Version mismatch: $version" }
           $packageDir = "package/Arranger Manager $version"
           New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
           Copy-Item -Force "build/ArrangerManagerDesktop_artefacts/Release/Arranger Manager.exe" $packageDir
@@ -59,10 +59,10 @@ jobs:
             component = "Arranger Manager"
             version = $version
             commit = "${{ github.sha }}"
-            issue = 7
+            issue = 57
           } | ConvertTo-Json | Set-Content -Encoding utf8 "$packageDir/version.json"
       - uses: actions/upload-artifact@v4
         with:
-          name: Arranger-Manager-0.2.0-Windows-App
+          name: Arranger-Manager-0.2.1-Windows-App
           path: package
 
