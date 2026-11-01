@@ -13,11 +13,14 @@ public:
         WorkspaceShell::Execute execute, juce::String selectedView,
         std::function<void(juce::String)> persistView,
         juce::String savedColumns, std::function<void(juce::String)> persistColumns)
-        : juce::DocumentWindow("Arranger Manager " + juce::String(ARRANGER_MANAGER_VERSION), juce::Colour(0xff1d232b),
+        : juce::DocumentWindow("Arranger Manager " + juce::String(ARRANGER_MANAGER_VERSION), mr::colour(mr::tokens::panel),
               juce::DocumentWindow::allButtons), workspaceAction(std::move(action))
     {
         setLookAndFeel(&theme);
-        setUsingNativeTitleBar(true);
+        // Native Windows caption follows the OS light theme and leaves the
+        // white strip shown in #61. JUCE-owned chrome uses the same graphite
+        // look-and-feel as the rest of Manager, including window controls.
+        setUsingNativeTitleBar(false);
         setMenuBar(this);
         setContentOwned(new WorkspaceShell(workspace, std::move(execute),
             std::move(selectedView), std::move(persistView), std::move(savedColumns),
