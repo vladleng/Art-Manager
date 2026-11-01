@@ -616,12 +616,26 @@ std::optional<TaskTree::Target> TaskTree::targetAt(juce::Point<int> point, bool 
 void TaskTree::itemDragMove(const SourceDetails& source)
 {
     const auto desc = source.description.toString();
-    const auto candidate = targetAt(source.localPosition, desc.startsWith("manager-checkpoint|"));
-    if (!candidate || (desc.startsWith("manager-task|") &&
-        desc.fromFirstOccurrenceOf("|", false, false).upToFirstOccurrenceOf("|", false, false)
-            == candidate->row.reference.taskId))
-        activeDrop.reset();
-    else activeDrop = candidate;
+    const auto isCheckpoint = desc.startsWith("manager-checkpoint|");
+    const auto candidate = targetAt(source.localPosition, isCheckpoint);
+    const auto fields = juce::StringArray::fromTokens(desc, "|", "");
+    bool valid = candidate.has_value() && fields.size() >= 3;
+    if (valid && isCheckpoint)
+        valid = fields[1] == candidate->row.reference.taskId
+            && fields[2] != candidate->row.checkpointId;
+    else if (valid)
+    {
+        if (fields[1] == candidate->row.reference.taskId) valid = false;
+        auto* parent = model.findTask(candidate->row.reference.taskId);
+        std::set<juce::String> seen;
+        while (valid && parent && seen.insert(parent->id).second)
+        {
+            if (parent->id == fields[1]) valid = false;
+            parent = parent->parentTaskId.isNotEmpty() ? model.findTask(parent->parentTaskId) : nullptr;
+        }
+    }
+    if (valid) activeDrop = candidate;
+    else activeDrop.reset();
     repaint();
 }
 void TaskTree::itemDragExit(const SourceDetails&) { activeDrop.reset(); repaint(); }
