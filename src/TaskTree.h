@@ -14,6 +14,7 @@ public:
         juce::String savedColumns = {}, std::function<void(juce::String)> persistColumns = {});
     juce::Result flush();
     void setTasks(std::vector<arranger::TaskReference>, bool checkpointsOnly = false);
+    void setManualOrder(bool enabled) { manualOrder = enabled; }
     void paint(juce::Graphics&) override;
     void paintOverChildren(juce::Graphics&) override;
     void resized() override;
@@ -70,6 +71,7 @@ private:
     std::vector<arranger::TaskTreeRow> rows;
     std::set<juce::String> expanded;
     bool checkpointsOnly = false;
+    bool manualOrder = true;
     mr::Icons icons;
     juce::TextEditor inlineEditor;
     std::optional<arranger::TaskTreeRow> editing;
