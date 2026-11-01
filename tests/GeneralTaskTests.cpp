@@ -89,13 +89,15 @@ int main()
     std::set<juce::String> expanded {"task:" + first, "checkpoint:" + cp};
     const auto treeSource = model.toJson();
     auto tree = taskTreeRows(model, WorkspaceQueries::allTasks(model), expanded);
-    REQUIRE(tree.size() == 7 && model.toJson() == treeSource, "Expansion mutated model or omitted notes/checkpoints");
-    REQUIRE(tree[3].checkpointId == cp && !tree[3].notes && tree[3].depth == 1
-        && tree[4].notes && tree[4].depth == 2, "Checkpoint nesting/identity");
+    REQUIRE(tree.size() == 5 && model.toJson() == treeSource, "Expansion mutated model or omitted notes/checkpoints");
+    REQUIRE(tree[2].checkpointId == cp && !tree[2].notes && tree[2].depth == 1
+        && tree[3].addChild && tree[3].depth == 1,
+        "Checkpoint nesting/identity without obsolete separate Notes rows");
     auto collapsed = taskTreeRows(model, WorkspaceQueries::allTasks(model), {});
     REQUIRE(collapsed.size() == 3, "Collapsed rows leak descendants");
     auto detailRows = taskTreeRows(model, {ref}, expanded, true);
-    REQUIRE(detailRows.size() == 3 && detailRows[0].depth == 0 && detailRows[1].depth == 1, "Detail checkpoint expansion");
+    REQUIRE(detailRows.size() == 2 && detailRows[0].depth == 0 && detailRows[1].addChild,
+        "Detail checkpoint projection should not create a Notes subrow");
     auto wrongRows = taskTreeRows(model, {wrong}, expanded);
     REQUIRE(wrongRows.empty(), "Tree accepts wrong owner");
     const auto beforeInline = model.findTask(first)->properties;
@@ -116,7 +118,8 @@ int main()
     REQUIRE(editor.redo().wasOk(), "Description redo");
     REQUIRE(controller.execute([&](WorkspaceCommands& c) { return c.archiveCheckpoint(first, cp); }).wasOk(), "Archive checkpoint");
     REQUIRE(WorkspaceQueries::taskProgress(*model.findTask(first)) == std::make_pair(0, 0), "Archived checkpoint counted");
-    REQUIRE(taskTreeRows(model, {ref}, expanded).size() == 3, "Archived checkpoint leaks into expanded tree");
+    REQUIRE(taskTreeRows(model, {ref}, expanded).size() == 2,
+        "Archived checkpoint leaks into expanded tree");
     REQUIRE(controller.execute([&](WorkspaceCommands& c) { return c.restoreCheckpoint(first, cp); }).wasOk()
         && model.findTask(first)->checkpoints[0].id == cp, "Restore checkpoint ID");
     const auto taskBeforeArchive = *model.findTask(first);
