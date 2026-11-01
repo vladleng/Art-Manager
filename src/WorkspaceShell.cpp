@@ -12,12 +12,14 @@ void rowBackground(juce::Graphics& g, int width, int height, bool selected)
 }
 
 WorkspaceShell::WorkspaceShell(arranger::WorkspaceModel& data,
-    Execute executeCommand, juce::String selectedView, std::function<void(juce::String)> saveView)
+    Execute executeCommand, juce::String selectedView, std::function<void(juce::String)> saveView,
+    juce::String savedColumns, std::function<void(juce::String)> saveColumns)
     : model(data), runCommand(std::move(executeCommand)),
       persistView(std::move(saveView)), viewKey(std::move(selectedView)),
       tasks(model, runCommand, [this] { return flushEdits(); },
           [this](arranger::TaskReference ref) { openTask(ref); }, [this] { refresh(); },
-          [this](juce::String id) { archiveTask(id); }, [this] { promptTask(); })
+          [this](juce::String id) { archiveTask(id); }, [this] { promptTask(); },
+          std::move(savedColumns), std::move(saveColumns))
 {
     setLookAndFeel(&theme);
     if (viewKey == "view:daw") viewKey = "view:legacy"; // Upgrade the old persisted tab without changing workspace data.
@@ -412,6 +414,12 @@ void WorkspaceShell::NavModel::paintListBoxItem(int index, juce::Graphics& g, in
     if (index < 0 || index >= getNumRows()) return;
     rowBackground(g, width, height, selected);
     const auto& row = owner.navigation[static_cast<size_t>(index)];
+    if (row.key.startsWith("page:") && row.key.substring(5) == owner.dropPageId)
+    {
+        g.setColour(mr::colour(mr::tokens::focus));
+        g.drawRoundedRectangle(2.0f, 1.0f, static_cast<float>(width - 4),
+            static_cast<float>(height - 2), 4.0f, 2.0f);
+    }
     const int indent = 10 + juce::jmin(row.depth, 6) * 16;
     g.drawText(row.title, indent, 0, juce::jmax(0, width - indent - 10), height, juce::Justification::centredLeft, true);
 }
@@ -469,4 +477,45 @@ void WorkspaceShell::ArchiveModel::listBoxItemDoubleClicked(int index, const juc
 {
     if (!event.mods.isPopupMenu() && index >= 0 && index < getNumRows())
         owner.restoreArchived(owner.archived[static_cast<size_t>(index)]);
+}
+
+juce::String WorkspaceShell::dropPageAt(juce::Point<int> position) const
+{
+    const auto local = nav.getLocalPoint(this, position);
+    if (!nav.getLocalBounds().contains(local)) return {};
+    const auto index = nav.getRowContainingPosition(local.x, local.y);
+    if (index < 0 || index >= static_cast<int>(navigation.size())) return {};
+    const auto key = navigation[static_cast<size_t>(index)].key;
+    if (!key.startsWith("page:")) return {};
+    const auto pageId = key.substring(5);
+    const auto* page = model.findPage(pageId);
+    if (!page || page->kind != "page" || arranger::WorkspaceQueries::isArchived(model, pageId))
+        return {};
+    return pageId;
+}
+bool WorkspaceShell::isInterestedInDragSource(const SourceDetails& source)
+{
+    return source.description.toString().startsWith("manager-task|");
+}
+void WorkspaceShell::itemDragMove(const SourceDetails& source)
+{
+    const auto next = dropPageAt(source.localPosition);
+    if (next == dropPageId) return;
+    dropPageId = next; nav.repaint();
+}
+void WorkspaceShell::itemDragExit(const SourceDetails&)
+{
+    dropPageId.clear(); nav.repaint();
+}
+void WorkspaceShell::itemDropped(const SourceDetails& source)
+{
+    const auto destination = dropPageAt(source.localPosition);
+    dropPageId.clear(); nav.repaint();
+    const auto fields = juce::StringArray::fromTokens(source.description.toString(), "|", "");
+    if (destination.isEmpty() || fields.size() != 4 || fields[0] != "manager-task") return;
+    const auto* task = model.findTask(fields[1]);
+    if (!task || arranger::WorkspaceQueries::taskArchived(model, task->id)) return;
+    if (execute([&](arranger::WorkspaceCommands& commands)
+        { return commands.moveTask(fields[1], fields[2], fields[3], destination, {}); }))
+        select("pageTasks:" + destination);
 }
