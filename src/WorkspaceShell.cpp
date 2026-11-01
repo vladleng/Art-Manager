@@ -35,20 +35,16 @@ WorkspaceShell::WorkspaceShell(arranger::WorkspaceModel& data,
     breadcrumb.setColour(juce::Label::textColourId, mr::colour(mr::tokens::muted));
     description.setColour(juce::Label::textColourId, mr::colour(mr::tokens::meta));
     addPage.setButtonText(text("+ Страница"));
+    addNote.setButtonText(text("+ Заметка"));
     addChild.setButtonText(text("+ Вложенная"));
     rename.setButtonText(text("Переименовать"));
     move.setButtonText(text("Переместить"));
     archiveButton.setButtonText(text("В архив"));
-    for (auto* tab : { &blocksTab, &tasksTab })
+    for (auto* button : { &addPage, &addNote, &addChild, &rename, &move, &archiveButton })
     {
-        tab->setColour(juce::TextButton::buttonColourId, mr::colour(mr::tokens::panel));
-        tab->setColour(juce::TextButton::buttonOnColourId, mr::colour(mr::tokens::selected));
-        tab->setColour(juce::TextButton::textColourOnId, mr::colour(mr::tokens::bright));
+        button->setColour(juce::TextButton::buttonColourId, mr::colour(mr::tokens::selected));
+        addAndMakeVisible(button);
     }
-    addPage.setColour(juce::TextButton::buttonColourId, mr::colour(mr::tokens::selected));
-    blocksTab.setButtonText(text("Содержимое"));
-    tasksTab.setButtonText(text("Задачи"));
-    for (auto* button : { &addPage, &addChild, &rename, &move, &archiveButton, &blocksTab, &tasksTab }) addAndMakeVisible(button);
     for (auto* list : { &nav, &archive })
     {
         addAndMakeVisible(list);
@@ -76,12 +72,11 @@ WorkspaceShell::WorkspaceShell(arranger::WorkspaceModel& data,
     addAndMakeVisible(taskDetails.get());
 
     addPage.onClick = [this] { promptPage({}); };
+    addNote.onClick = [this] { promptPage({}, {}, true); };
     addChild.onClick = [this] { promptPage(selectedPage()); };
     rename.onClick = [this] { promptPage({}, selectedPage()); };
     move.onClick = [this] { showMoveMenu(selectedPage(), move.getScreenBounds().getBottomLeft()); };
     archiveButton.onClick = [this] { archivePage(selectedPage()); };
-    blocksTab.onClick = [this] { select("page:" + selectedPage()); };
-    tasksTab.onClick = [this] { select("pageTasks:" + selectedPage()); };
     refresh();
 }
 
@@ -103,16 +98,15 @@ void WorkspaceShell::paint(juce::Graphics& g)
 void WorkspaceShell::resized()
 {
     brand.setBounds(14, 12, 210, 32);
-    addPage.setBounds(12, 54, 216, 30);
+    addPage.setBounds(12, 54, 104, 30);
+    addNote.setBounds(124, 54, 104, 30);
     nav.setBounds(10, 98, 220, juce::jmax(20, getHeight() - 110));
     auto content = getLocalBounds().withTrimmedLeft(250).reduced(14);
     breadcrumb.setBounds(content.removeFromTop(28));
     title.setBounds(content.removeFromTop(48));
     description.setBounds(content.removeFromTop(24));
     content.removeFromTop(8);
-    auto tabs = selectedPage().isNotEmpty() ? content.removeFromTop(32) : juce::Rectangle<int>();
-    blocksTab.setBounds(tabs.removeFromLeft(116).reduced(2));
-    tasksTab.setBounds(tabs.removeFromLeft(110).reduced(2));
+    // Note pages and task pages are separate kinds; no redundant two-tab UI.
     content.removeFromTop(6);
     if (viewKey == "view:legacy")
         legacySummary.setBounds(content.removeFromTop(juce::jmin(220, content.getHeight() / 2)).reduced(0, 4));
@@ -129,6 +123,7 @@ juce::String WorkspaceShell::selectedPage() const
 {
     if (viewKey.startsWith("page:")) return viewKey.substring(5);
     if (viewKey.startsWith("pageTasks:")) return viewKey.substring(10);
+    if (viewKey.startsWith("pageBlocks:")) return viewKey.substring(11);
     return {};
 }
 
@@ -141,12 +136,12 @@ void WorkspaceShell::refresh()
     navigation = {{"view:tasks", text("Все задачи"), 0}, {"view:legacy", text("Архив песен"), 0}};
     for (const auto& row : arranger::WorkspaceQueries::activePages(model))
         if (const auto* page = model.findPage(row.id))
-            navigation.push_back({"page:" + page->id, page->title, row.depth});
+            navigation.push_back({"page:" + page->id, (page->kind == "note" ? text("✎ ") : juce::String()) + page->title, row.depth});
     archived = arranger::WorkspaceQueries::archivedRoots(model);
     for (const auto& task : model.tasks) if (task.archivedAt.isNotEmpty()) archived.push_back("task:" + task.id);
     navigation.push_back({"view:archive", text("Архив") + " (" + juce::String(static_cast<int>(archived.size())) + ")", 0});
     juce::String navKey = viewKey;
-    if (viewKey.startsWith("pageTasks:")) navKey = "page:" + selectedPage();
+    if (viewKey.startsWith("pageTasks:") || viewKey.startsWith("pageBlocks:")) navKey = "page:" + selectedPage();
     if (viewKey.startsWith("task:"))
     {
         const auto* task = model.findTask(viewKey.substring(5));
@@ -160,7 +155,7 @@ void WorkspaceShell::refresh()
     nav.selectRow(selected);
     nav.repaint();
     taskReferences = arranger::WorkspaceQueries::allTasks(model);
-    if (viewKey.startsWith("pageTasks:"))
+    if (viewKey.startsWith("pageTasks:") || viewKey.startsWith("page:") || viewKey.startsWith("pageBlocks:"))
         std::erase_if(taskReferences, [&](const auto& ref) { return ref.ownerPageId != selectedPage(); });
     else if (viewKey == "view:legacy")
         std::erase_if(taskReferences, [](const auto& ref) { return ref.songId.isEmpty(); });
@@ -193,29 +188,30 @@ void WorkspaceShell::select(const juce::String& key)
 void WorkspaceShell::showDetails()
 {
     const bool legacy = viewKey == "view:legacy", allTasks = viewKey == "view:tasks", archivedView = viewKey == "view:archive";
-    const bool pageTasks = viewKey.startsWith("pageTasks:");
+    const bool oldBlocks = viewKey.startsWith("pageBlocks:");
     std::optional<arranger::WorkspacePage> page;
     if (const auto* found = model.findPage(selectedPage())) page = *found;
     std::optional<arranger::WorkspaceTask> task;
     if (viewKey.startsWith("task:")) if (const auto* found = model.findTask(viewKey.substring(5))) task = *found;
-    const bool ordinary = page && page->kind == "page", taskView = task.has_value();
-    tasks.setVisible(allTasks || legacy || (ordinary && pageTasks));
+    const bool ordinary = page && page->kind == "page";
+    const bool notePage = page && page->kind == "note";
+    const bool taskView = task.has_value();
+    const bool showBlocks = notePage || (ordinary && oldBlocks);
+    tasks.setVisible(allTasks || legacy || (ordinary && !oldBlocks));
     legacySummary.setVisible(legacy);
     archive.setVisible(archivedView);
     taskDetails->setVisible(taskView);
     for (auto* component : std::initializer_list<juce::Component*>{ &title, &breadcrumb, &description }) component->setVisible(true);
     for (auto* button : { &addChild, &rename, &move, &archiveButton }) button->setVisible(false);
-    for (auto* button : { &blocksTab, &tasksTab }) button->setVisible(ordinary);
-    blocksTab.setToggleState(ordinary && !pageTasks, juce::dontSendNotification);
-    tasksTab.setToggleState(ordinary && pageTasks, juce::dontSendNotification);
-    blockEditor.setVisible(ordinary && !pageTasks);
-    if (ordinary && !pageTasks)
+    blockEditor.setVisible(showBlocks);
+    if (showBlocks)
     {
         const auto pageId = page->id;
         blockEditor.bind(pageId, [this, pageId]() -> std::optional<arranger::BlockEditorSession::Blocks>
         {
             const auto* current = model.findPage(pageId);
-            if (!current || current->kind != "page" || arranger::WorkspaceQueries::isArchived(model, pageId)) return {};
+            if (!current || !arranger::WorkspaceQueries::isWorkspacePage(*current)
+                || arranger::WorkspaceQueries::isArchived(model, pageId)) return {};
             return current->blocks;
         }, [this, pageId](const auto& expected, const auto& blocks)
         {
@@ -253,8 +249,14 @@ void WorkspaceShell::showDetails()
         int count = 0;
         for (const auto& item : model.tasks)
             if (item.ownerPageId == page->id && !arranger::WorkspaceQueries::taskArchived(model, item.id)) ++count;
-        tasksTab.setButtonText(text("Задачи (") + juce::String(count) + ")");
-        description.setText(pageTasks ? juce::String(count) + text(" задач") : text("Описание и материалы страницы"), juce::dontSendNotification);
+        description.setText(oldBlocks ? text("Ранее сохранённые материалы страницы")
+            : juce::String(count) + text(" задач"), juce::dontSendNotification);
+    }
+    else if (notePage)
+    {
+        breadcrumb.setText(arranger::WorkspaceQueries::breadcrumb(model, page->id), juce::dontSendNotification);
+        title.setText(page->title, juce::dontSendNotification);
+        description.setText(text("Заметки на полях"), juce::dontSendNotification);
     }
     else if (taskView)
     {
@@ -287,26 +289,28 @@ void WorkspaceShell::report(const juce::Result& result)
         text("Не удалось сохранить изменение"), result.getErrorMessage(), this);
 }
 
-void WorkspaceShell::promptPage(const juce::String& parentId, const juce::String& renameId)
+void WorkspaceShell::promptPage(const juce::String& parentId, const juce::String& renameId, bool asNote)
 {
     if (!flushEdits()) return;
     const auto* existing = model.findPage(renameId);
     const bool renaming = existing != nullptr;
     const auto currentTitle = renaming ? existing->title : juce::String();
-    auto* dialog = new juce::AlertWindow(renaming ? text("Переименовать страницу") : text("Новая страница"),
+    auto* dialog = new juce::AlertWindow(renaming ? text("Переименовать страницу")
+        : asNote ? text("Новая заметка") : text("Новая страница"),
         text("Название страницы"), juce::MessageBoxIconType::NoIcon, this);
     dialog->addTextEditor("title", currentTitle, text("Название"));
     dialog->addButton(text("Сохранить"), 1, juce::KeyPress(juce::KeyPress::returnKey));
     dialog->addButton(text("Отмена"), 0, juce::KeyPress(juce::KeyPress::escapeKey));
     juce::Component::SafePointer<WorkspaceShell> safe(this);
-    dialog->enterModalState(true, juce::ModalCallbackFunction::create([safe, dialog, parentId, renameId](int result)
+    dialog->enterModalState(true, juce::ModalCallbackFunction::create([safe, dialog, parentId, renameId, asNote](int result)
     {
         if (safe == nullptr || result != 1) return;
         const auto title = dialog->getTextEditorContents("title");
         juce::String id = renameId;
         const bool changed = safe->execute([&](arranger::WorkspaceCommands& commands)
         {
-            return renameId.isNotEmpty() ? commands.renamePage(renameId, title) : commands.createPage(parentId, title, id);
+            return renameId.isNotEmpty() ? commands.renamePage(renameId, title)
+                : asNote ? commands.createNotePage(parentId, title, id) : commands.createPage(parentId, title, id);
         });
         if (changed) safe->select("page:" + id);
     }), true);
@@ -316,8 +320,12 @@ void WorkspaceShell::showPageMenu(const juce::String& id, juce::Point<int> posit
 {
     juce::PopupMenu menu; menu.setLookAndFeel(&getLookAndFeel());
     menu.addItem(1, text("Новая вложенная страница"));
+    menu.addItem(5, text("Новая вложенная заметка"));
     menu.addItem(2, text("Переименовать"));
     menu.addItem(3, text("Переместить"));
+    if (const auto* page = model.findPage(id))
+        if (page->kind == "page" && !page->blocks.empty())
+            menu.addItem(6, text("Открыть прежние материалы"));
     menu.addSeparator();
     menu.addItem(4, text("В архив"));
     juce::Component::SafePointer<WorkspaceShell> safe(this);
@@ -326,9 +334,11 @@ void WorkspaceShell::showPageMenu(const juce::String& id, juce::Point<int> posit
         {
             if (safe == nullptr) return;
             if (item == 1) safe->promptPage(id);
+            else if (item == 5) safe->promptPage(id, {}, true);
             else if (item == 2) safe->promptPage({}, id);
             else if (item == 3) safe->showMoveMenu(id, position);
             else if (item == 4) safe->archivePage(id);
+            else if (item == 6) safe->select("pageBlocks:" + id);
         });
 }
 
@@ -388,6 +398,8 @@ void WorkspaceShell::promptTask()
     juce::StringArray labels;
     for (const auto& row : arranger::WorkspaceQueries::activePages(model))
     {
+        const auto* page = model.findPage(row.id);
+        if (!page || page->kind != "page") continue;
         owners.push_back(row.id); labels.add(arranger::WorkspaceQueries::breadcrumb(model, row.id));
     }
     if (owners.empty()) { delete dialog; report(juce::Result::fail(text("Сначала создайте обычную страницу."))); return; }

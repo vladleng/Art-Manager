@@ -48,7 +48,7 @@ private:
     void select(const juce::String& key);
     void showDetails();
     void showPageMenu(const juce::String&, juce::Point<int>);
-    void promptPage(const juce::String& parentId, const juce::String& renameId = {});
+    void promptPage(const juce::String& parentId, const juce::String& renameId = {}, bool asNote = false);
     void showMoveMenu(const juce::String&, juce::Point<int>);
     void archivePage(const juce::String&);
     void restoreArchived(const juce::String&);
@@ -76,7 +76,7 @@ private:
     TaskTree tasks;
     juce::Label brand, title, breadcrumb, description, empty;
     juce::TextEditor legacySummary; // Offline, read-only catalog archive; no DAW reader.
-    juce::TextButton addPage, addChild, rename, move, archiveButton, blocksTab, tasksTab;
+    juce::TextButton addPage, addNote, addChild, rename, move, archiveButton;
     BlockEditor blockEditor;
     std::unique_ptr<TaskDetails> taskDetails;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(WorkspaceShell)

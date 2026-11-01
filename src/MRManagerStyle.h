@@ -104,6 +104,32 @@ private:
 class ManagerTheme final : public juce::LookAndFeel_V4
 {
 public:
+    static juce::Colour titleBarColour() { return juce::Colour(0xff202123); }
+
+    // JUCE's default V4 title bar uses the generic widget-background scheme,
+    // which can appear olive-tinted. MR Live uses near-black window chrome;
+    // explicitly draw that neutral colour without altering content/status UI.
+    void drawDocumentWindowTitleBar(juce::DocumentWindow& window, juce::Graphics& g,
+        int width, int height, int titleSpaceX, int titleSpaceW,
+        const juce::Image* icon, bool /*drawTitleTextOnLeft*/) override
+    {
+        g.fillAll(titleBarColour());
+        if (width <= 0 || height <= 0 || titleSpaceW <= 0) return;
+        auto textX = titleSpaceX + 7;
+        if (icon != nullptr && icon->isValid())
+        {
+            const int iconSize = juce::jmin(18, height - 6);
+            g.drawImageWithin(*icon, textX, (height - iconSize) / 2,
+                iconSize, iconSize, juce::RectanglePlacement::centred);
+            textX += iconSize + 6;
+        }
+        g.setColour(juce::Colour(0xffe1e2e4).withMultipliedAlpha(window.isActiveWindow() ? 1.0f : 0.7f));
+        g.setFont(juce::FontOptions(juce::jmin(15.0f, static_cast<float>(height) * 0.55f)));
+        g.drawFittedText(window.getName(), textX, 0,
+            juce::jmax(0, titleSpaceX + titleSpaceW - textX - 6), height,
+            juce::Justification::centredLeft, 1);
+    }
+
     ManagerTheme()
     {
         const auto canvas = colour(tokens::canvas), panel = colour(tokens::panel);

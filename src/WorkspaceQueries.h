@@ -53,6 +53,11 @@ struct WorkspaceQueries
         return titles.joinIntoString(" / ");
     }
 
+    static bool isWorkspacePage(const WorkspacePage& page)
+    {
+        return page.kind == "page" || page.kind == "note";
+    }
+
     static std::vector<PageRow> activePages(const WorkspaceModel& model)
     {
         std::vector<PageRow> rows;
@@ -62,13 +67,13 @@ struct WorkspaceQueries
             if (!visited.insert(id).second || isArchived(model, id)) return;
             rows.push_back({id, depth});
             for (const auto& child : model.pages)
-                if (child.kind == "page" && child.parentPageId == id) append(child.id, depth + 1);
+                if (isWorkspacePage(child) && child.parentPageId == id) append(child.id, depth + 1);
         };
         for (const auto& page : model.pages)
-            if (page.kind == "page")
+            if (isWorkspacePage(page))
             {
                 const auto* parent = model.findPage(page.parentPageId);
-                if (parent == nullptr || parent->kind != "page") append(page.id, 0);
+                if (parent == nullptr || !isWorkspacePage(*parent)) append(page.id, 0);
             }
         return rows;
     }
@@ -77,7 +82,7 @@ struct WorkspaceQueries
     {
         std::vector<juce::String> result;
         for (const auto& page : model.pages)
-            if (page.kind == "page" && page.archivedAt.isNotEmpty()) result.push_back(page.id);
+            if (isWorkspacePage(page) && page.archivedAt.isNotEmpty()) result.push_back(page.id);
         return result;
     }
 
