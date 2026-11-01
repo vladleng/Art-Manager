@@ -11,16 +11,16 @@ void rowBackground(juce::Graphics& g, int width, int height, bool selected)
 }
 }
 
-WorkspaceShell::WorkspaceShell(arranger::WorkspaceModel& data, std::unique_ptr<HubEditor> editor,
+WorkspaceShell::WorkspaceShell(arranger::WorkspaceModel& data,
     Execute executeCommand, juce::String selectedView, std::function<void(juce::String)> saveView)
-    : model(data), hub(std::move(editor)), runCommand(std::move(executeCommand)),
+    : model(data), runCommand(std::move(executeCommand)),
       persistView(std::move(saveView)), viewKey(std::move(selectedView)),
       tasks(model, runCommand, [this] { return flushEdits(); },
           [this](arranger::TaskReference ref) { openTask(ref); }, [this] { refresh(); },
           [this](juce::String id) { archiveTask(id); }, [this] { promptTask(); })
 {
     setLookAndFeel(&theme);
-    hub->setLookAndFeel(&juce::LookAndFeel::getDefaultLookAndFeel()); // Preserve legacy DAW appearance.
+    if (viewKey == "view:daw") viewKey = "view:legacy"; // Upgrade the old persisted tab without changing workspace data.
     brand.setText("Arranger Manager", juce::dontSendNotification);
     brand.setFont(juce::FontOptions(17.0f, juce::Font::bold));
     title.setFont(juce::FontOptions(24.0f, juce::Font::bold));
@@ -55,7 +55,13 @@ WorkspaceShell::WorkspaceShell(arranger::WorkspaceModel& data, std::unique_ptr<H
     }
     addAndMakeVisible(tasks);
     addAndMakeVisible(blockEditor);
-    addAndMakeVisible(hub.get());
+    addAndMakeVisible(legacySummary);
+    legacySummary.setReadOnly(true);
+    legacySummary.setMultiLine(true, true);
+    legacySummary.setScrollbarsShown(true);
+    legacySummary.setColour(juce::TextEditor::backgroundColourId, mr::colour(mr::tokens::panel));
+    legacySummary.setColour(juce::TextEditor::textColourId, mr::colour(mr::tokens::bright));
+    legacySummary.setColour(juce::TextEditor::outlineColourId, mr::colour(mr::tokens::outline));
     taskDetails = std::make_unique<TaskDetails>(model, [this](const auto& action) { return runCommand(action); },
         [this](juce::String id) { select("pageTasks:" + id); },
         [this](juce::String id) { archiveTask(id); },
@@ -97,7 +103,6 @@ void WorkspaceShell::resized()
     addPage.setBounds(12, 54, 216, 30);
     nav.setBounds(10, 98, 220, juce::jmax(20, getHeight() - 110));
     auto content = getLocalBounds().withTrimmedLeft(250).reduced(14);
-    hub->setBounds(content);
     breadcrumb.setBounds(content.removeFromTop(28));
     title.setBounds(content.removeFromTop(48));
     description.setBounds(content.removeFromTop(24));
@@ -106,6 +111,10 @@ void WorkspaceShell::resized()
     blocksTab.setBounds(tabs.removeFromLeft(116).reduced(2));
     tasksTab.setBounds(tabs.removeFromLeft(110).reduced(2));
     content.removeFromTop(6);
+    if (viewKey == "view:legacy")
+        legacySummary.setBounds(content.removeFromTop(juce::jmin(220, content.getHeight() / 2)).reduced(0, 4));
+    else
+        legacySummary.setBounds({});
     tasks.setBounds(content);
     archive.setBounds(content);
     blockEditor.setBounds(content);
@@ -126,7 +135,7 @@ void WorkspaceShell::refresh()
     const juce::String oldArchiveId = oldArchiveIndex >= 0 && oldArchiveIndex < static_cast<int>(archived.size())
         ? archived[static_cast<size_t>(oldArchiveIndex)] : juce::String();
     rebuilding = true;
-    navigation = {{"view:daw", text("DAW"), 0}, {"view:tasks", text("Все задачи"), 0}};
+    navigation = {{"view:tasks", text("Все задачи"), 0}, {"view:legacy", text("Архив песен"), 0}};
     for (const auto& row : arranger::WorkspaceQueries::activePages(model))
         if (const auto* page = model.findPage(row.id))
             navigation.push_back({"page:" + page->id, page->title, row.depth});
@@ -143,13 +152,15 @@ void WorkspaceShell::refresh()
     int selected = -1;
     for (int i = 0; i < static_cast<int>(navigation.size()); ++i)
         if (navigation[static_cast<size_t>(i)].key == navKey) selected = i;
-    if (selected < 0) { viewKey = "view:daw"; selected = 0; }
+    if (selected < 0) { viewKey = "view:tasks"; selected = 0; }
     nav.updateContent();
     nav.selectRow(selected);
     nav.repaint();
     taskReferences = arranger::WorkspaceQueries::allTasks(model);
     if (viewKey.startsWith("pageTasks:"))
         std::erase_if(taskReferences, [&](const auto& ref) { return ref.ownerPageId != selectedPage(); });
+    else if (viewKey == "view:legacy")
+        std::erase_if(taskReferences, [](const auto& ref) { return ref.songId.isEmpty(); });
     tasks.setTasks(taskReferences);
     archive.updateContent();
     archive.deselectAllRows();
@@ -178,18 +189,18 @@ void WorkspaceShell::select(const juce::String& key)
 
 void WorkspaceShell::showDetails()
 {
-    const bool daw = viewKey == "view:daw", allTasks = viewKey == "view:tasks", archivedView = viewKey == "view:archive";
+    const bool legacy = viewKey == "view:legacy", allTasks = viewKey == "view:tasks", archivedView = viewKey == "view:archive";
     const bool pageTasks = viewKey.startsWith("pageTasks:");
-    hub->setVisible(daw); // DAW focus transition may save/replace the model.
     std::optional<arranger::WorkspacePage> page;
     if (const auto* found = model.findPage(selectedPage())) page = *found;
     std::optional<arranger::WorkspaceTask> task;
     if (viewKey.startsWith("task:")) if (const auto* found = model.findTask(viewKey.substring(5))) task = *found;
     const bool ordinary = page && page->kind == "page", taskView = task.has_value();
-    tasks.setVisible(allTasks || (ordinary && pageTasks));
+    tasks.setVisible(allTasks || legacy || (ordinary && pageTasks));
+    legacySummary.setVisible(legacy);
     archive.setVisible(archivedView);
     taskDetails->setVisible(taskView);
-    for (auto* component : std::initializer_list<juce::Component*>{ &title, &breadcrumb, &description }) component->setVisible(!daw);
+    for (auto* component : std::initializer_list<juce::Component*>{ &title, &breadcrumb, &description }) component->setVisible(true);
     for (auto* button : { &addChild, &rename, &move, &archiveButton }) button->setVisible(false);
     for (auto* button : { &blocksTab, &tasksTab }) button->setVisible(ordinary);
     blocksTab.setToggleState(ordinary && !pageTasks, juce::dontSendNotification);
@@ -211,7 +222,14 @@ void WorkspaceShell::showDetails()
     else blockEditor.bind({}, {}, {});
     taskDetails->bind(taskView ? task->id : juce::String());
     empty.setVisible(false);
-    if (allTasks)
+    if (legacy)
+    {
+        breadcrumb.setText(text("Рабочее пространство / архив"), juce::dontSendNotification);
+        title.setText(text("Сохранённые песни Studio Pro"), juce::dontSendNotification);
+        description.setText(text("Локальные данные и задачи — без чтения .song. Исходные файлы не изменяются."), juce::dontSendNotification);
+        legacySummary.setText(arranger::WorkspaceQueries::legacyCatalogSummary(model), false);
+    }
+    else if (allTasks)
     {
         breadcrumb.setText(text("Рабочее пространство"), juce::dontSendNotification);
         title.setText(text("Все задачи"), juce::dontSendNotification);
@@ -355,11 +373,8 @@ void WorkspaceShell::archiveTask(const juce::String& id)
 void WorkspaceShell::openTask(arranger::TaskReference ref)
 {
     if (ref.songId.isEmpty()) { select("task:" + ref.taskId); return; }
-    const auto* song = arranger::WorkspaceQueries::song(model, ref.songId);
-    if (!song) return;
-    const auto path = song->path;
-    select("view:daw");
-    if (viewKey == "view:daw") hub->openCatalogSong(path);
+    // Legacy tasks remain editable in the local catalog; no external .song or DAW is opened.
+    select("view:legacy");
 }
 void WorkspaceShell::promptTask()
 {
