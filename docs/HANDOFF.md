@@ -1,5 +1,7 @@
 # Arranger Manager — вход в разработку
 
+**Кандидат #67 / 0.2.6:** шаблоны проектов/задач и hover-контраст реализованы в `feature/67-workspace-templates`, [draft PR #70](https://github.com/vladleng/Art-Manager/pull/70). [Windows #112](https://github.com/vladleng/Art-Manager/actions/runs/41323585038) SUCCESS, 11/11 тестов; проверенный код `29ef17916b744207d2e3eca1616aaea2d56d3880`. [Windows ZIP](https://github.com/vladleng/Art-Manager/actions/runs/41323585038/artifacts/13090337216). **Ожидает пользовательской приёмки; main не менялся.** Контракт и ручной чек-лист: [TEMPLATES-67](TEMPLATES-67.md). Обновлённый общий план 0.2.5 → #67 → #68 остаётся в отдельном документационном draft PR #69; старые сводки ниже не переопределяют этот план. Merge — только по отдельной прямой команде пользователя.
+
 ## Решение 2026-10-28
 
 Связь со **Studio Pro упразднена**. Manager развивается в MR-экосистеме: **сначала MR Live, затем MR Studio**. Каноническое решение и проверенные sources/assets: [MR-ECOSYSTEM](MR-ECOSYSTEM.md). [ROADMAP](ROADMAP.md), [CONCEPT](CONCEPT.md), [архитектура](WORKSPACE-ARCHITECTURE.md).
