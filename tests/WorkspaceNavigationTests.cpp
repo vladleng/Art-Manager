@@ -125,5 +125,46 @@ int main()
         || !check(restored.findPage(child)->id == childId && restored.findPage(grandchild)->parentPageId == child,
             "Hierarchy/IDs lost on restart")
         || !check(restored.catalog.songs[0].tasks[0].checkpoints[0].name == "Verse", "Page operations changed DAW checkpoints")) return 1;
+    // #63 / 0.2.4: two distinct page kinds, shared stable tree and safe
+    // preservation of old page blocks without an implicit migration.
+    WorkspaceModel notesModel;
+    WorkspaceCommands notesCommand(notesModel);
+    juce::String projectPage, notebook, nestedNote, nestedProject, createdTask;
+    if (!check(notesCommand.createPage({}, "Production", projectPage).wasOk(), "Project page create")
+        || !check(notesCommand.createNotePage({}, "Ideas", notebook).wasOk(), "Note page create")
+        || !check(notesCommand.createNotePage(projectPage, "Side notes", nestedNote).wasOk(), "Nested note create")
+        || !check(notesCommand.createPage(notebook, "Tasks under notes", nestedProject).wasOk(),
+            "Project under note page create")
+        || !check(notesModel.findPage(notebook)->kind == "note"
+            && notesModel.findPage(projectPage)->kind == "page"
+            && WorkspaceQueries::activePages(notesModel).size() == 4, "Navigation lost page kinds")
+        || !check(notesCommand.createTask(notebook, "Invalid owner", createdTask).failed(),
+            "Note pages must not own general tasks")
+        || !check(notesCommand.createTask(projectPage, "Arrangement", createdTask).wasOk(),
+            "Normal task page cannot create tasks")) return 1;
+    const std::vector<WorkspaceBlock> oldBlocks {{"old-page-block", "text", "Historical content", {}, false}};
+    const std::vector<WorkspaceBlock> noteBlocks {{"note-block", "heading", "Idea", {}, false}};
+    if (!check(notesCommand.replacePageBlocks(projectPage, {}, oldBlocks).wasOk(),
+            "Cannot retain historical materials in ordinary page")
+        || !check(notesCommand.replacePageBlocks(notebook, {}, noteBlocks).wasOk(),
+            "Cannot edit note page blocks")
+        || !check(notesCommand.moveTask(createdTask, projectPage, {}, notebook, {}).failed(),
+            "Moved task into note-only page")
+        || !check(notesCommand.archivePage(notebook).wasOk(), "Archive note")
+        || !check(WorkspaceQueries::isArchived(notesModel, nestedProject), "Note archive missed descendants")
+        || !check(WorkspaceQueries::activePages(notesModel).size() == 2, "Archived notes remained in navigation")
+        || !check(notesCommand.restorePage(notebook).wasOk(), "Restore note")
+        || !check(WorkspaceQueries::activePages(notesModel).size() == 4, "Restored notes missing")
+        || !check(notesModel.validate().wasOk(), "Note kind invalid in workspace schema")) return 1;
+    WorkspaceModel reloadedNotes;
+    if (!check(WorkspaceModel::fromJson(notesModel.toJson(), reloadedNotes).wasOk(),
+            "Schema-2 note page cannot round-trip")
+        || !check(reloadedNotes.findPage(projectPage)->blocks[0].id == "old-page-block"
+            && reloadedNotes.findPage(notebook)->blocks[0].id == "note-block"
+            && reloadedNotes.findPage(nestedNote)->parentPageId == projectPage,
+            "Round-trip lost note or historical page block IDs")) return 1;
+    auto badKind = notesModel;
+    badKind.findPage(notebook)->kind = "unsupported";
+    if (!check(badKind.validate().failed(), "Unsupported page kind was accepted")) return 1;
     return 0;
 }
