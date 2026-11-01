@@ -79,6 +79,29 @@ TaskTree::TaskTree(arranger::WorkspaceModel& data, Execute run, std::function<bo
     inlineEditor.onFocusLost = [this] { if (!committing && editing) flush(); };
     setWantsKeyboardFocus(true);
 }
+void TaskTree::setViewOptions(arranger::TaskViewOptions value)
+{
+    viewOptions = std::move(value);
+    manualOrder = viewOptions.sort == arranger::TaskViewSort::manual;
+    viewExpanded.clear();
+    if (viewOptions.search.trim().isNotEmpty() || viewOptions.status.isNotEmpty()
+        || viewOptions.priority > 0)
+    {
+        for (const auto& task : model.tasks)
+        {
+            if (task.parentTaskId.isEmpty() || arranger::WorkspaceQueries::taskArchived(model, task.id)
+                || !arranger::taskMatchesView(model, {{}, task.ownerPageId, task.id}, viewOptions)) continue;
+            auto parentId = task.parentTaskId;
+            std::set<juce::String> visited;
+            while (parentId.isNotEmpty() && visited.insert(parentId).second)
+            {
+                viewExpanded.insert("task:" + parentId);
+                const auto* parent = model.findTask(parentId);
+                parentId = parent != nullptr ? parent->parentTaskId : juce::String();
+            }
+        }
+    }
+}
 void TaskTree::setTasks(std::vector<arranger::TaskReference> refs, bool only)
 {
     references = std::move(refs); checkpointsOnly = only; rebuild();
@@ -87,7 +110,9 @@ void TaskTree::rebuild()
 {
     const int selected = list.getSelectedRow();
     const auto key = selected >= 0 && selected < getNumRows() ? rows[static_cast<size_t>(selected)].key() : juce::String();
-    rows = arranger::taskTreeRows(model, references, expanded, checkpointsOnly);
+    auto effectiveExpanded = expanded;
+    effectiveExpanded.insert(viewExpanded.begin(), viewExpanded.end());
+    rows = arranger::taskTreeRows(model, references, effectiveExpanded, checkpointsOnly);
     list.updateContent(); list.setVisible(!rows.empty()); list.deselectAllRows();
     for (int i = 0; i < getNumRows(); ++i) if (rows[static_cast<size_t>(i)].key() == key) list.selectRow(i, true, false);
     list.repaint(); repaint(); positionInline();
@@ -563,7 +588,7 @@ int TaskTree::headerDividerAt(int x) const
 }
 juce::var TaskTree::getDragSourceDescription(const juce::SparseSet<int>& selected)
 {
-    if (selected.size() != 1 || editing) return {};
+    if (!manualOrder || selected.size() != 1 || editing) return {};
     const auto index = selected.getRange(0).getStart();
     if (index < 0 || index >= getNumRows()) return {};
     const auto row = rows[static_cast<size_t>(index)];
@@ -577,6 +602,7 @@ juce::var TaskTree::getDragSourceDescription(const juce::SparseSet<int>& selecte
 }
 bool TaskTree::isInterestedInDragSource(const SourceDetails& source)
 {
+    if (!manualOrder) return false;
     return source.description.toString().startsWith("manager-task|")
         || source.description.toString().startsWith("manager-checkpoint|");
 }

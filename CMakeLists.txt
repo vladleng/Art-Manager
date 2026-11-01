@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(ArrangerManager VERSION 0.2.4 LANGUAGES C CXX)
+project(ArrangerManager VERSION 0.2.5 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -18,7 +18,7 @@ juce_generate_juce_header(ArrangerManagerDesktop)
 target_sources(ArrangerManagerDesktop PRIVATE
     src/ArrangementTag.h src/SongCatalog.h src/SongNoteKeys.h src/HubApplication.cpp
     src/WorkspaceModel.h src/WorkspaceStore.h
-    src/WorkspaceQueries.h src/WorkspaceCommands.h src/WorkspaceController.h src/WorkspaceViewRouting.h
+    src/WorkspaceQueries.h src/WorkspaceCommands.h src/WorkspaceController.h src/WorkspaceViewRouting.h src/WorkspaceTaskViews.h
     src/WorkspaceShell.h src/WorkspaceShell.cpp
     src/BlockEditorSession.h src/BlockEditor.h src/BlockEditor.cpp
     src/TaskDetails.h src/TaskDetails.cpp
@@ -106,6 +106,16 @@ endif()
 target_link_libraries(TaskDomainTests PRIVATE juce::juce_core
     PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 add_test(NAME TaskDomainTests COMMAND TaskDomainTests)
+
+add_executable(WorkspaceTaskViewsTests tests/WorkspaceTaskViewsTests.cpp)
+target_include_directories(WorkspaceTaskViewsTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_compile_definitions(WorkspaceTaskViewsTests PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+if(MSVC)
+    target_compile_options(WorkspaceTaskViewsTests PRIVATE /utf-8)
+endif()
+target_link_libraries(WorkspaceTaskViewsTests PRIVATE juce::juce_core
+    PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+add_test(NAME WorkspaceTaskViewsTests COMMAND WorkspaceTaskViewsTests)
 
 juce_add_console_app(TaskTreeUiTests PRODUCT_NAME "TaskTreeUiTests")
 juce_generate_juce_header(TaskTreeUiTests)
