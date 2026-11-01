@@ -4,6 +4,7 @@
 #include "WorkspaceCommands.h"
 #include "BlockEditor.h"
 #include "TaskDetails.h"
+#include "WorkspaceTaskViews.h"
 
 class WorkspaceShell final : public juce::Component, public juce::DragAndDropContainer,
     public juce::DragAndDropTarget
@@ -12,7 +13,8 @@ public:
     using Execute = std::function<juce::Result(const arranger::WorkspaceAction&)>;
     WorkspaceShell(arranger::WorkspaceModel&, Execute,
         juce::String selectedView, std::function<void(juce::String)> saveView,
-        juce::String savedColumns = {}, std::function<void(juce::String)> saveColumns = {});
+        juce::String savedColumns = {}, std::function<void(juce::String)> saveColumns = {},
+        juce::String savedTaskViews = {}, std::function<void(juce::String)> saveTaskViews = {});
     ~WorkspaceShell() override;
     void paint(juce::Graphics&) override;
     void resized() override;
@@ -58,12 +60,23 @@ private:
     void promptTask();
     void archiveTask(const juce::String&);
     void report(const juce::Result&);
+    juce::String taskViewKey() const;
+    void loadTaskViewSettings(const juce::String&);
+    void saveTaskViewSettings();
+    void updateTaskProjection();
+    void showFilterMenu();
+    void showSortMenu();
 
     mr::ManagerTheme theme;
     arranger::WorkspaceModel& model;
     Execute runCommand;
     std::function<void(juce::String)> persistView;
     juce::String viewKey;
+    std::map<juce::String, arranger::TaskViewOptions> taskViews;
+    std::function<void(juce::String)> persistTaskViews;
+    bool applyingView = false;
+    juce::TextEditor searchBox;
+    juce::TextButton filterButton, sortButton, clearButton;
     bool rebuilding = false;
     juce::String dropPageId;
     juce::String dropPageAt(juce::Point<int>) const;
