@@ -1,4 +1,5 @@
 #include "WorkspaceShell.h"
+#include "WorkspaceViewRouting.h"
 
 namespace
 {
@@ -403,8 +404,16 @@ void WorkspaceShell::promptTask()
         const int index = dialog->getComboBoxComponent("owner")->getSelectedId() - 1;
         if (index < 0 || index >= static_cast<int>(owners.size())) return;
         const auto name = dialog->getTextEditorContents("name"); juce::String created;
+        const auto ownerId = owners[static_cast<size_t>(index)];
+        const auto destinationView = arranger::viewAfterTaskCreation(safe->viewKey, ownerId);
         if (safe->execute([&](arranger::WorkspaceCommands& cmd)
-            { return cmd.createTask(owners[static_cast<size_t>(index)], name, created); })) safe->select("task:" + created);
+            { return cmd.createTask(ownerId, name, created); }))
+        {
+            // execute() already refreshes and shows the new row if this list is
+            // visible. Only switch views if the original screen hid that row.
+            // Never force-open the full-page TaskDetails view on creation.
+            if (safe->viewKey != destinationView) safe->select(destinationView);
+        }
     }), true);
 }
 

@@ -1,4 +1,5 @@
 #include "WorkspaceController.h"
+#include "WorkspaceViewRouting.h"
 #include <iostream>
 
 static bool check(bool condition, const char* message)
@@ -30,6 +31,18 @@ int main()
         || !check(commands.createPage(root, "YouTube", child).wasOk(), "Child creation failed")
         || !check(commands.createPage(child, "Shorts", grandchild).wasOk(), "Grandchild creation failed")
         || !check(commands.createPage({}, "Other", other).wasOk(), "Other root failed")) return 1;
+    // Task creation should not automatically navigate to the obsolete
+    // full-page TaskDetails screen; the new row must stay visible.
+    if (!check(viewAfterTaskCreation("view:tasks", root) == "view:tasks",
+            "Creating from All Tasks must stay in the task list")
+        || !check(viewAfterTaskCreation("pageTasks:" + root, root) == "pageTasks:" + root,
+            "Creating from the owner page must stay in its task list")
+        || !check(viewAfterTaskCreation("pageTasks:" + other, root) == "pageTasks:" + root,
+            "Creating for a different owner must show the right task list")
+        || !check(viewAfterTaskCreation("page:" + root, root) == "pageTasks:" + root,
+            "Creating while blocks are visible must show the tasks")
+        || !check(viewAfterTaskCreation("task:previous", root) == "pageTasks:" + root,
+            "Task creation must never open a full-page task detail")) return 1;
     model.findPage(child)->blocks.push_back({"kept-block", "text", "Text", {}, false});
     const auto original = model.toJson();
     const auto childId = child;

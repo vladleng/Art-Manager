@@ -26,6 +26,42 @@ static bool snapshot(juce::Component& component, const char* filename)
 int main()
 {
     juce::ScopedJuceInitialiser_GUI gui;
+    // #61: neutral Manager chrome has no blue tint, without flattening
+    // meaningful status colours and priority badges.
+    const auto graphite = [](std::uint32_t token)
+    {
+        const auto colour = mr::colour(token);
+        const int r = colour.getRed(), g = colour.getGreen(), b = colour.getBlue();
+        return std::abs(r - g) <= 6 && std::abs(g - b) <= 6 && std::abs(r - b) <= 6;
+    };
+    for (auto token : {mr::tokens::canvas, mr::tokens::panel, mr::tokens::item,
+                       mr::tokens::selected, mr::tokens::outline, mr::tokens::bright,
+                       mr::tokens::meta, mr::tokens::muted, mr::tokens::focus})
+        REQUIRE(graphite(token), "Neutral Manager surface still carries a blue tint");
+    REQUIRE(mr::colour(mr::tokens::wip) == juce::Colour(mr::tokens::wip)
+         && mr::colour(mr::tokens::p1) == juce::Colour(mr::tokens::p1)
+         && mr::colour(mr::tokens::progressFill) == juce::Colour(mr::tokens::progressFill),
+        "Semantic status/priority/progress colours were modified");
+
+    // Existing action SVGs use the old blue focus tone. Check that the
+    // runtime cache neutralises these without rewriting the pinned SVGs.
+    mr::Icons icons;
+    juce::Image actionImage(juce::Image::ARGB, 28, 28, true);
+    {
+        juce::Graphics g(actionImage);
+        icons.draw("manager/actions/organizer", g, {2.0f, 2.0f, 24.0f, 24.0f});
+    }
+    int visiblePixels = 0;
+    for (int y = 0; y < actionImage.getHeight(); ++y)
+        for (int x = 0; x < actionImage.getWidth(); ++x)
+        {
+            const auto pixel = actionImage.getPixelAt(x, y);
+            if (pixel.getAlpha() < 64) continue;
+            ++visiblePixels;
+            REQUIRE(std::abs(static_cast<int>(pixel.getRed()) - static_cast<int>(pixel.getBlue())) <= 6,
+                "Action icon retained a blue tint");
+        }
+    REQUIRE(visiblePixels > 0, "Graphite action icon did not render");
     arranger::WorkspaceModel model;
     model.catalog.addSong("C:/Fixture/legacy.song");
     const auto legacyId = model.catalog.addTask(model.catalog.songs[0].path, "Local legacy task");

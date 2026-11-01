@@ -7,7 +7,29 @@
 
 namespace mr
 {
-inline juce::Colour colour(std::uint32_t value) { return juce::Colour(static_cast<juce::uint32>(value)); }
+// Manager-only graphite surface palette. Keep the pinned MR UDS SVG source and
+// generated MRManagerAssets.h unchanged; status/priority/progress colours retain
+// their semantic meaning. Only neutral chrome, text, borders and focus are tuned.
+inline juce::Colour colour(std::uint32_t value)
+{
+    switch (value)
+    {
+        case tokens::canvas:   return juce::Colour(0xff1b1c1e);
+        case tokens::panel:    return juce::Colour(0xff262729);
+        case tokens::channel:  return juce::Colour(0xff2b2c2e);
+        case tokens::item:     return juce::Colour(0xff2b2c2e);
+        case tokens::selected: return juce::Colour(0xff343537);
+        case tokens::section:  return juce::Colour(0xff37383a);
+        case tokens::outline:  return juce::Colour(0xff4a4a4d);
+        case tokens::bright:   return juce::Colour(0xffe2e2e3);
+        // MR UDS currently assigns meta and focus the same source value
+        // (0xff91bbee). One case therefore covers both; duplicate cases fail
+        // to compile on MSVC (C2196).
+        case tokens::meta:     return juce::Colour(0xffb9b9bc);
+        case tokens::muted:    return juce::Colour(0xff8e8e92);
+        default:               return juce::Colour(static_cast<juce::uint32>(value));
+    }
+}
 inline juce::Colour statusFill(arranger::Status value)
 {
     switch (value)
@@ -57,8 +79,18 @@ public:
     Icons()
     {
         for (const auto& source : assets::icons)
+        {
             if (auto drawable = juce::Drawable::createFromSVGString(juce::String::fromUTF8(source.xml)))
+            {
+                // Neutral UI action symbols in the pinned SVG pack still use
+                // the old pale-blue focus colour. Retint only cached Manager
+                // drawables at startup; do not alter source/generated assets
+                // or meaningful status glyphs (e.g. WIP blue, DONE green).
+                if (!juce::String(source.id).startsWith("manager/status/"))
+                    drawable->replaceColour(juce::Colour(0xff91bbee), colour(tokens::focus));
                 cache.emplace(source.id, std::move(drawable));
+            }
+        }
     }
     void draw(const char* id, juce::Graphics& g, juce::Rectangle<float> bounds)
     {
