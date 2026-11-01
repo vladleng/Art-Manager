@@ -93,7 +93,7 @@ public:
         setColour(juce::ComboBox::textColourId, bright);
         setColour(juce::ComboBox::outlineColourId, outline);
         setColour(juce::ComboBox::arrowColourId, focus);
-        setColour(juce::PopupMenu::backgroundColourId, panel);
+        setColour(juce::PopupMenu::backgroundColourId, panel.withAlpha(0.9f));
         setColour(juce::PopupMenu::textColourId, bright);
         setColour(juce::PopupMenu::headerTextColourId, colour(tokens::meta));
         setColour(juce::PopupMenu::highlightedBackgroundColourId, colour(tokens::selected));
@@ -129,7 +129,7 @@ public:
     }
     void drawPopupMenuBackground(juce::Graphics& g, int width, int height) override
     {
-        g.fillAll(colour(tokens::panel));
+        g.fillAll(colour(tokens::panel).withAlpha(0.9f));
         g.setColour(colour(tokens::outline));
         g.drawRect(0, 0, width, height);
     }
