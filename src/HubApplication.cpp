@@ -12,7 +12,7 @@ public:
     HubWindow(arranger::WorkspaceModel& workspace, std::function<void(int)> action,
         WorkspaceShell::Execute execute, juce::String selectedView,
         std::function<void(juce::String)> persistView)
-        : juce::DocumentWindow("Arranger Manager 0.1h", juce::Colour(0xff1d232b),
+        : juce::DocumentWindow("Arranger Manager " + juce::String(ARRANGER_MANAGER_VERSION), juce::Colour(0xff1d232b),
               juce::DocumentWindow::allButtons), workspaceAction(std::move(action))
     {
         setUsingNativeTitleBar(true);
@@ -53,7 +53,7 @@ class HubApplication final : public juce::JUCEApplication
 {
 public:
     const juce::String getApplicationName() override { return "Arranger Manager"; }
-    const juce::String getApplicationVersion() override { return "0.1h"; }
+    const juce::String getApplicationVersion() override { return ARRANGER_MANAGER_VERSION; }
     bool moreThanOneInstanceAllowed() override { return false; }
 
     void initialise(const juce::String& commandLine) override
@@ -113,7 +113,7 @@ private:
                 if (action == 1)
                 {
                     juce::NativeMessageBox::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
-                        "Workspace storage", "Version: 0.1h\nWorkspace ID: " + workspace.id
+                        "Workspace storage", "Version: " + juce::String(ARRANGER_MANAGER_VERSION) + "\nWorkspace ID: " + workspace.id
                             + "\nSchema: 2\nRevision: " + juce::String(workspace.revision)
                             + "\nSongs: " + juce::String(static_cast<int>(workspace.catalog.songs.size()))
                             + "\nPages: " + juce::String(static_cast<int>(workspace.pages.size()))
