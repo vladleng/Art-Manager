@@ -79,6 +79,19 @@ int main()
     bool failWrites = false, allowFlush = true; int opened = 0;
     juce::String widthsSaved;
     mr::ManagerTheme theme;
+    // MR Live-like near-black header: the title is drawn independently of
+    // the generic V4 colour scheme, not with olive-tinted widget background.
+    REQUIRE(mr::ManagerTheme::titleBarColour() == juce::Colour(0xff202123),
+        "Title bar is no longer neutral near-black");
+    juce::DocumentWindow windowFixture("Title test", mr::ManagerTheme::titleBarColour(),
+        juce::DocumentWindow::allButtons);
+    juce::Image titlePreview(juce::Image::ARGB, 280, 30, true);
+    {
+        juce::Graphics g(titlePreview);
+        theme.drawDocumentWindowTitleBar(windowFixture, g, 280, 30, 5, 200, nullptr, true);
+    }
+    REQUIRE(titlePreview.getPixelAt(2, 2) == mr::ManagerTheme::titleBarColour(),
+        "Window title bar painter did not apply black graphite");
     TaskTree tree(model,
         [&](const arranger::WorkspaceAction& action) {
             return failWrites ? juce::Result::fail("Disk failure fixture") : action(commands);
@@ -99,6 +112,14 @@ int main()
     // Notes now live in the right-hand column, not in an expandable detail row.
     view->listBoxItemClicked(1, click(*list, 10));
     REQUIRE(view->getNumRows() == 8, "Opening task must show four checkpoints and one add row, but no Notes row");
+    // A checkpoint now has a neutral leaf glyph, never a second DONE checkbox.
+    // Clicking its former square must not silently change TODO/DONE.
+    const auto firstCheckpointId = model.findTask(first)->checkpoints[0].id;
+    view->listBoxItemClicked(2, click(*list, 151));
+    REQUIRE(model.findTask(first)->checkpoints[0].id == firstCheckpointId
+        && model.findTask(first)->checkpoints[0].status == arranger::Status::todo,
+        "Legacy checkpoint icon still toggles completion instead of using the status menu");
+
     auto* edit = dynamic_cast<juce::TextEditor*>(tree.getChildComponent(1));
     REQUIRE(edit, "Inline editor");
     view->listBoxItemDoubleClicked(1, click(*list, 748));
