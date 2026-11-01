@@ -17,6 +17,8 @@ public:
               juce::DocumentWindow::allButtons), workspaceAction(std::move(action))
     {
         setLookAndFeel(&theme);
+        setColour(juce::DocumentWindow::backgroundColourId, mr::colour(mr::tokens::panel));
+        setColour(juce::DocumentWindow::textColourId, mr::colour(mr::tokens::bright));
         // Native Windows caption follows the OS light theme and leaves the
         // white strip shown in #61. JUCE-owned chrome uses the same graphite
         // look-and-feel as the rest of Manager, including window controls.
