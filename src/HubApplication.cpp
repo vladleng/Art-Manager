@@ -1,5 +1,4 @@
 #include <JuceHeader.h>
-#include "HubEditor.h"
 #include "WorkspaceStore.h"
 #include "WorkspaceShell.h"
 #include "WorkspaceController.h"
@@ -10,9 +9,7 @@ namespace
 class HubWindow final : public juce::DocumentWindow, private juce::MenuBarModel
 {
 public:
-    HubWindow(std::function<juce::String()> getPath,
-        std::function<void(juce::String)> setPath, arranger::WorkspaceModel& workspace,
-        std::function<void()> saveCatalog, std::function<void(int)> action,
+    HubWindow(arranger::WorkspaceModel& workspace, std::function<void(int)> action,
         WorkspaceShell::Execute execute, juce::String selectedView,
         std::function<void(juce::String)> persistView)
         : juce::DocumentWindow("Arranger Manager 0.1h", juce::Colour(0xff1d232b),
@@ -20,9 +17,7 @@ public:
     {
         setUsingNativeTitleBar(true);
         setMenuBar(this);
-        auto editor = std::make_unique<HubEditor>(std::move(getPath), std::move(setPath),
-            &workspace.catalog, std::move(saveCatalog));
-        setContentOwned(new WorkspaceShell(workspace, std::move(editor), std::move(execute),
+        setContentOwned(new WorkspaceShell(workspace, std::move(execute),
             std::move(selectedView), std::move(persistView)), true);
         setResizable(true, false);
         setResizeLimits(1240, 760, 2300, 1600);
@@ -70,7 +65,9 @@ public:
         settings.setStorageParameters(options);
         auto* user = settings.getUserSettings();
         if (user == nullptr) { failStartup("Cannot open application settings."); return; }
-        projectPath = user->getValue("lastProjectPath");
+        // Historical settings are used only for one-time workspace migration.
+        // No Studio Pro file is opened by the running Desktop application.
+        const auto lastProjectPath = user->getValue("lastProjectPath");
         store = std::make_unique<arranger::WorkspaceStore>(
             user->getFile().getSiblingFile("Arranger Manager.workspace.json"));
         if (commandLine.contains("--restore-workspace-backup"))
@@ -78,7 +75,7 @@ public:
             const auto restored = store->restoreBackup();
             if (restored.failed()) { failStartup(restored.getErrorMessage()); return; }
         }
-        const auto result = store->load(user->getValue("songCatalog"), projectPath, workspace);
+        const auto result = store->load(user->getValue("songCatalog"), lastProjectPath, workspace);
         if (result.failed()) { failStartup(result.getErrorMessage()); return; }
         openMainWindow();
     }
@@ -107,30 +104,10 @@ private:
             nullptr, juce::ModalCallbackFunction::create([](int) { juce::JUCEApplication::quit(); }));
     }
 
-    void saveWorkspace()
-    {
-        const auto result = store->save(workspace);
-        if (result.failed())
-            juce::NativeMessageBox::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                "Workspace was not saved", result.getErrorMessage()
-                    + "\nChanges are still in memory. Existing saved data is retained.", window.get());
-        else if (window != nullptr) window->refreshWorkspace();
-    }
-
     void openMainWindow()
     {
         if (controller == nullptr) controller = std::make_unique<arranger::WorkspaceController>(workspace, *store);
-        window = std::make_unique<HubWindow>(
-            [this] { return projectPath; },
-            [this](juce::String path)
-            {
-                projectPath = std::move(path);
-                if (auto* user = settings.getUserSettings())
-                {
-                    user->setValue("lastProjectPath", projectPath);
-                    user->saveIfNeeded();
-                }
-            }, workspace, [this] { saveWorkspace(); },
+        window = std::make_unique<HubWindow>(workspace,
             [this](int action)
             {
                 if (action == 1)
@@ -173,7 +150,7 @@ private:
                 auto result = controller->execute(action);
                 return result;
             },
-            settings.getUserSettings()->getValue("workspaceView", "view:daw"),
+            settings.getUserSettings()->getValue("workspaceView", "view:tasks"),
             [this](juce::String key)
             {
                 if (auto* user = settings.getUserSettings())
@@ -185,7 +162,6 @@ private:
     }
 
     juce::ApplicationProperties settings;
-    juce::String projectPath;
     arranger::WorkspaceModel workspace;
     std::unique_ptr<arranger::WorkspaceStore> store;
     std::unique_ptr<arranger::WorkspaceController> controller;
