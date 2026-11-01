@@ -1,4 +1,5 @@
 name: Windows App Build
+run-name: Arranger Manager 0.2.0 - ${{ github.ref_name }}
 on:
   push:
     branches: [main]
@@ -12,6 +13,17 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Validate candidate version against the application and artifact
+        shell: pwsh
+        run: |
+          $cmake = Get-Content 'CMakeLists.txt' -Raw
+          if ($cmake -notmatch 'project\(ArrangerManager VERSION 0\.2\.0 LANGUAGES C CXX\)') {
+            throw "CMake version differs from Actions run/artifact version 0.2.0"
+          }
+          $application = Get-Content 'src/HubApplication.cpp' -Raw
+          if ($application -notmatch 'return ARRANGER_MANAGER_VERSION;') {
+            throw 'Desktop version must come from the CMake compile definition'
+          }
       - name: Configure
         run: cmake -S . -B build
       - name: Build tests
@@ -25,17 +37,26 @@ jobs:
           ./build/TaskTreeUiTests_artefacts/Release/TaskTreeUiTests.exe
       - name: Build standalone desktop (Studio Pro plug-ins retired)
         run: cmake --build build --config Release --target ArrangerManagerDesktop --parallel 2
-      - name: Prepare package
+      - name: Prepare package and version manifest
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path "package/Arranger Manager 0.1h" | Out-Null
-          Copy-Item -Force "build/ArrangerManagerDesktop_artefacts/Release/Arranger Manager.exe" "package/Arranger Manager 0.1h"
-          Copy-Item -Force "task-tree-preview.png" "package/Arranger Manager 0.1h"
-          Copy-Item -Force "docs/HYBRID-0.1h.md" "package/Arranger Manager 0.1h"
-          Copy-Item -Force "docs/WORKSPACE-0.1e-DECISIONS.md" "package/Arranger Manager 0.1h"
-          Copy-Item -Force "prototypes/editor-web.html" "package/Arranger Manager 0.1h"
+          $cmake = Get-Content 'CMakeLists.txt' -Raw
+          $version = [regex]::Match($cmake, 'project\(ArrangerManager VERSION (\d+\.\d+\.\d+)').Groups[1].Value
+          if ($version -ne '0.2.0') { throw "Version mismatch: $version" }
+          $packageDir = "package/Arranger Manager $version"
+          New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
+          Copy-Item -Force "build/ArrangerManagerDesktop_artefacts/Release/Arranger Manager.exe" $packageDir
+          Copy-Item -Force "task-tree-preview.png" $packageDir
+          Copy-Item -Force "docs/LEGACY-RETIREMENT-7.md" $packageDir
+          Copy-Item -Force "docs/WORKSPACE-0.1e-DECISIONS.md" $packageDir
+          [ordered]@{
+            component = "Arranger Manager"
+            version = $version
+            commit = "${{ github.sha }}"
+            issue = 7
+          } | ConvertTo-Json | Set-Content -Encoding utf8 "$packageDir/version.json"
       - uses: actions/upload-artifact@v4
         with:
-          name: Arranger-Manager-0.1h-Windows-App
+          name: Arranger-Manager-0.2.0-Windows-App
           path: package
 
