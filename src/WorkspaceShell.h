@@ -5,6 +5,7 @@
 #include "BlockEditor.h"
 #include "TaskDetails.h"
 #include "WorkspaceTaskViews.h"
+#include <map>
 
 class WorkspaceShell final : public juce::Component, public juce::DragAndDropContainer,
     public juce::DragAndDropTarget
