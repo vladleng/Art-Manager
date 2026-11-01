@@ -7,7 +7,27 @@
 
 namespace mr
 {
-inline juce::Colour colour(std::uint32_t value) { return juce::Colour(static_cast<juce::uint32>(value)); }
+// Manager-only graphite surface palette. Keep the pinned MR UDS SVG source and
+// generated MRManagerAssets.h unchanged; status/priority/progress colours retain
+// their semantic meaning. Only neutral chrome, text, borders and focus are tuned.
+inline juce::Colour colour(std::uint32_t value)
+{
+    switch (value)
+    {
+        case tokens::canvas:   return juce::Colour(0xff1b1c1e);
+        case tokens::panel:    return juce::Colour(0xff262729);
+        case tokens::channel:  return juce::Colour(0xff2b2c2e);
+        case tokens::item:     return juce::Colour(0xff2b2c2e);
+        case tokens::selected: return juce::Colour(0xff343537);
+        case tokens::section:  return juce::Colour(0xff37383a);
+        case tokens::outline:  return juce::Colour(0xff4a4a4d);
+        case tokens::bright:   return juce::Colour(0xffe2e2e3);
+        case tokens::meta:     return juce::Colour(0xffb9b9bc);
+        case tokens::muted:    return juce::Colour(0xff8e8e92);
+        case tokens::focus:    return juce::Colour(0xffc7c7cb);
+        default:               return juce::Colour(static_cast<juce::uint32>(value));
+    }
+}
 inline juce::Colour statusFill(arranger::Status value)
 {
     switch (value)
