@@ -7,10 +7,10 @@
 ## Изменено
 
 - В `MRManagerStyle.h` сделан отдельный **runtime-only графитовый слой нейтральных токенов**: canvas, panel, channel, item, selected, section, outline, bright, meta, muted, focus. Синие оттенки в контуре, тексте, фокусе и выделении заменены на нейтральные серые.
-- `MRManagerAssets.h` — **генерируемый файл**, исходные MR UDS SVG/manifest, инструмент `embed_mr_manager_assets.py` и MR Studio/Live **не изменялись**. Отдельный Manager-профиль отрисовки намеренно не заменяет закреплённую upstream-библиотеку.
+- `MRManagerAssets.h` — **генерируемый файл**, исходные MR UDS SVG/manifest, инструмент `embed_mr_manager_assets.py` и MR Studio/Live **не изменялись**. Отдельный Manager-профиль отрисовки намеренно не заменяет закреплённую upstream-библиотеку. Нейтральные SVG-иконки действий, которые хранят старый синий `#91BBEE`, перекрашиваются **только в памяти** через `Drawable::replaceColour` при создании кэша. Цветные status glyphs не трогаются.
 - `HubWindow` вместо `setUsingNativeTitleBar(true)` использует `setUsingNativeTitleBar(false)` и graphite background `mr::colour(mr::tokens::panel)`. JUCE рисует тёмную шапку и оконные кнопки без зависимости от светлой темы Windows.
 - Значения `wip`/`wait`/`done`/`blocked`/priority P1–P4/`progressFill` сохранены как **смысловые индикаторы**; прогресс и данные задач не меняются.
-- Новый набор assertions в `TaskTreeUiTests`: нейтральные цвета без голубого подтона, семантические цвета неизменны.
+- Новый набор assertions в `TaskTreeUiTests`: нейтральные цвета без голубого подтона, нейтральная SVG-иконка действительно отрисовывается серой; семантические цвета неизменны.
 - Дополнительно #61: при создании обычной задачи теперь остаёмся в списке, не открываем полноэкранный TaskDetails.
 
 ## Windows-приёмка (только после успешного CI)
