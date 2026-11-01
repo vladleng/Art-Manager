@@ -73,7 +73,7 @@ WorkspaceShell::WorkspaceShell(arranger::WorkspaceModel& data,
         auto& options = taskViews[taskViewKey()];
         options.search = searchBox.getText().substring(0, 256);
         saveTaskViewSettings();
-        updateTaskProjection();
+        refresh(); // Update both task matches and sidebar page/note search hits.
     };
     filterButton.onClick = [this] { showFilterMenu(); };
     sortButton.onClick = [this] { showSortMenu(); };
@@ -185,9 +185,19 @@ void WorkspaceShell::refresh()
         ? archived[static_cast<size_t>(oldArchiveIndex)] : juce::String();
     rebuilding = true;
     navigation = {{"view:tasks", text("Все задачи"), 0}, {"view:legacy", text("Архив песен"), 0}};
+    const auto globalSearch = viewKey == "view:tasks"
+        ? taskViews["view:tasks"].search.trim() : juce::String();
     for (const auto& row : arranger::WorkspaceQueries::activePages(model))
         if (const auto* page = model.findPage(row.id))
-            navigation.push_back({"page:" + page->id, (page->kind == "note" ? text("✎ ") : juce::String()) + page->title, row.depth});
+        {
+            if (globalSearch.isNotEmpty() && !arranger::pageMatchesSearch(model, *page, globalSearch))
+                continue;
+            const auto marker = page->kind == "note" ? text("✎ ") : juce::String();
+            navigation.push_back({"page:" + page->id,
+                marker + (globalSearch.isNotEmpty()
+                    ? arranger::WorkspaceQueries::breadcrumb(model, page->id) : page->title),
+                globalSearch.isNotEmpty() ? 0 : row.depth});
+        }
     archived = arranger::WorkspaceQueries::archivedRoots(model);
     for (const auto& task : model.tasks) if (task.archivedAt.isNotEmpty()) archived.push_back("task:" + task.id);
     navigation.push_back({"view:archive", text("Архив") + " (" + juce::String(static_cast<int>(archived.size())) + ")", 0});
