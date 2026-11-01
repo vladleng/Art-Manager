@@ -257,7 +257,7 @@ void TaskTree::showMenu(arranger::TaskTreeRow row, juce::Point<int> position)
     const auto* task = arranger::WorkspaceQueries::generalTask(model, row.reference);
     const auto* cp = checkpoint(model, row);
     juce::PopupMenu menu; menu.setLookAndFeel(&getLookAndFeel());
-    if (open) menu.addItem(1, task ? tr("Открыть задачу") : tr("Открыть песню в DAW"));
+    if (open) menu.addItem(1, task ? tr("Открыть задачу") : tr("Показать сохранённую песню"));
     if (task)
     {
         menu.addItem(2, cp ? tr("Изменить подзадачу / заметки") : tr("Переименовать / свойства / Notes"));
