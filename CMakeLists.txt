@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(ArrangerManager VERSION 0.1.13 LANGUAGES C CXX)
+project(ArrangerManager VERSION 0.2.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -23,7 +23,7 @@ target_sources(ArrangerManagerDesktop PRIVATE
     src/BlockEditorSession.h src/BlockEditor.h src/BlockEditor.cpp
     src/TaskDetails.h src/TaskDetails.cpp
     src/TaskTreeRows.h src/TaskTree.h src/TaskTree.cpp)
-target_compile_definitions(ArrangerManagerDesktop PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_compile_definitions(ArrangerManagerDesktop PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 ARRANGER_MANAGER_VERSION=\"${PROJECT_VERSION}\")
 if(MSVC)
     target_compile_options(ArrangerManagerDesktop PRIVATE /utf-8)
 endif()
