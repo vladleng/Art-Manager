@@ -1,6 +1,6 @@
 # #54-B / #59: Task table and drag/drop (0.2.2)
 
-Implementation branch `feature/54-task-table-0.2.2` is **based on unmerged** `feature/54-task-domain-0.2.1` (PR #58). Do not merge either branch to main before explicit user approval. Both stages are work for #54; only the final Windows candidate with UI is suitable for visual user acceptance.
+Implementation branch [`feature/54-task-table-0.2.2`](https://github.com/vladleng/Art-Manager/pull/60) (draft PR #60) is **based on unmerged** `feature/54-task-domain-0.2.1` (PR #58). Do not merge either branch to main before explicit user approval. Both stages are work for #54; only the final Windows candidate with UI is suitable for visual user acceptance.
 
 ## Intended behavior
 
@@ -17,3 +17,7 @@ Implementation branch `feature/54-task-table-0.2.2` is **based on unmerged** `fe
 - CMake/Windows workflow version and names set to 0.2.2, with TaskDomainTests, TaskTreeUiTests and full existing checks.
 - CI / actual input / DPI must be verified **after** opening PR. Until then: NOT TESTED.
 - Known pending: persisted undo for drag moves is not in this GUI slice. Don't mark Undo checkboxes complete before implementation. No two-way MR Live/Studio connectivity.
+
+## Manual Windows check
+
+After a successful 0.2.2 artifact, expand an ordinary task, add a second-level subtask, drag it before/after a sibling and into a different task, then drag the entire parent onto another page in the sidebar. Restart to verify Notes/IDs/order. Resize each header divider and restart to verify widths; edit Notes with 1/3/10 lines and check Escape, blur and a failed write. Capture any unexpected insertion marker or old Notes subrow. This is user acceptance, not implied by CI.
