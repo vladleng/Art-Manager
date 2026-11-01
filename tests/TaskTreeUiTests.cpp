@@ -26,6 +26,22 @@ static bool snapshot(juce::Component& component, const char* filename)
 int main()
 {
     juce::ScopedJuceInitialiser_GUI gui;
+    // #61: neutral Manager chrome has no blue tint, without flattening
+    // meaningful status colours and priority badges.
+    const auto graphite = [](std::uint32_t token)
+    {
+        const auto colour = mr::colour(token);
+        const int r = colour.getRed(), g = colour.getGreen(), b = colour.getBlue();
+        return std::abs(r - g) <= 6 && std::abs(g - b) <= 6 && std::abs(r - b) <= 6;
+    };
+    for (auto token : {mr::tokens::canvas, mr::tokens::panel, mr::tokens::item,
+                       mr::tokens::selected, mr::tokens::outline, mr::tokens::bright,
+                       mr::tokens::meta, mr::tokens::muted, mr::tokens::focus})
+        REQUIRE(graphite(token), "Neutral Manager surface still carries a blue tint");
+    REQUIRE(mr::colour(mr::tokens::wip) == juce::Colour(mr::tokens::wip)
+         && mr::colour(mr::tokens::p1) == juce::Colour(mr::tokens::p1)
+         && mr::colour(mr::tokens::progressFill) == juce::Colour(mr::tokens::progressFill),
+        "Semantic status/priority/progress colours were modified");
     arranger::WorkspaceModel model;
     model.catalog.addSong("C:/Fixture/legacy.song");
     const auto legacyId = model.catalog.addTask(model.catalog.songs[0].path, "Local legacy task");
