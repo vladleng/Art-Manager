@@ -85,6 +85,17 @@ int main()
         "Move lost subtree, IDs, parentage or Notes");
     REQUIRE(model.findTask(one)->checkpoints[0].id == secondCp, "Move lost legacy checkpoints");
 
+    // Move a second ordinary root under the transferred task, keeping its ID.
+    REQUIRE(controller.execute([&](WorkspaceCommands& cmd) {
+        return cmd.moveTask(two, pageA, {}, pageB, one);
+    }).wasOk(), "Cross-page reparent");
+    REQUIRE(model.findTask(two)->ownerPageId == pageB &&
+        model.findTask(two)->parentTaskId == one &&
+        model.findTask(two)->properties.name == "Master",
+        "Reparent copied or corrupted the original task");
+    REQUIRE(WorkspaceQueries::allTasks(model).size() == 1,
+        "Child of a moved root appeared as a duplicate top-level task");
+
     const auto beforeFailed = model.toJson();
     REQUIRE(controller.execute([&](WorkspaceCommands& cmd) {
         return cmd.moveTask(one, pageB, {}, pageB, grandchild);
