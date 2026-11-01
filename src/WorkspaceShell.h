@@ -3,6 +3,7 @@
 #include "HubEditor.h"
 #include "WorkspaceCommands.h"
 #include "BlockEditor.h"
+#include "TaskDetails.h"
 
 class WorkspaceShell final : public juce::Component
 {
@@ -27,21 +28,13 @@ private:
         void listBoxItemDoubleClicked(int, const juce::MouseEvent&) override;
         WorkspaceShell& owner;
     };
-    struct TaskModel final : juce::ListBoxModel
-    {
-        explicit TaskModel(WorkspaceShell& value) : owner(value) {}
-        int getNumRows() override;
-        void paintListBoxItem(int, juce::Graphics&, int, int, bool) override;
-        void listBoxItemDoubleClicked(int, const juce::MouseEvent&) override;
-        void selectedRowsChanged(int) override;
-        WorkspaceShell& owner;
-    };
     struct ArchiveModel final : juce::ListBoxModel
     {
         explicit ArchiveModel(WorkspaceShell& value) : owner(value) {}
         int getNumRows() override;
         void paintListBoxItem(int, juce::Graphics&, int, int, bool) override;
-        void selectedRowsChanged(int) override;
+        void listBoxItemClicked(int, const juce::MouseEvent&) override;
+        void listBoxItemDoubleClicked(int, const juce::MouseEvent&) override;
         WorkspaceShell& owner;
     };
 
@@ -51,10 +44,12 @@ private:
     void promptPage(const juce::String& parentId, const juce::String& renameId = {});
     void showMoveMenu(const juce::String&, juce::Point<int>);
     void archivePage(const juce::String&);
-    void restorePage();
+    void restoreArchived(const juce::String&);
     bool execute(const arranger::WorkspaceAction&);
     juce::String selectedPage() const;
-    void openTask(int);
+    void openTask(arranger::TaskReference);
+    void promptTask();
+    void archiveTask(const juce::String&);
     void report(const juce::Result&);
 
     arranger::WorkspaceModel& model;
@@ -67,11 +62,13 @@ private:
     std::vector<arranger::TaskReference> taskReferences;
     std::vector<juce::String> archived;
     NavModel navModel { *this };
-    TaskModel taskModel { *this };
     ArchiveModel archiveModel { *this };
-    juce::ListBox nav { "Pages", &navModel }, tasks { "All tasks", &taskModel }, archive { "Archive", &archiveModel };
+    juce::ListBox nav { "Pages", &navModel }, archive { "Archive", &archiveModel };
+    TaskTree tasks;
     juce::Label brand, title, breadcrumb, description, empty;
-    juce::TextButton addPage, addChild, rename, move, archiveButton, restore, openSource;
+    juce::TextButton addPage, addChild, rename, move, archiveButton, blocksTab, tasksTab;
     BlockEditor blockEditor;
+    std::unique_ptr<TaskDetails> taskDetails;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(WorkspaceShell)
 };
+

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(ArrangerManager VERSION 0.1.12 LANGUAGES C CXX)
+project(ArrangerManager VERSION 0.1.13 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -86,7 +86,9 @@ target_sources(ArrangerManagerDesktop PRIVATE
     src/WorkspaceModel.h src/WorkspaceStore.h
     src/WorkspaceQueries.h src/WorkspaceCommands.h src/WorkspaceController.h
     src/WorkspaceShell.h src/WorkspaceShell.cpp
-    src/BlockEditorSession.h src/BlockEditor.h src/BlockEditor.cpp)
+    src/BlockEditorSession.h src/BlockEditor.h src/BlockEditor.cpp
+    src/TaskDetails.h src/TaskDetails.cpp
+    src/TaskTreeRows.h src/TaskTree.h src/TaskTree.cpp)
 target_compile_definitions(ArrangerManagerDesktop PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
 if(MSVC)
     target_compile_options(ArrangerManagerDesktop PRIVATE /utf-8)
@@ -149,3 +151,26 @@ endif()
 target_link_libraries(BlockEditorTests PRIVATE juce::juce_core
     PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 add_test(NAME BlockEditorTests COMMAND BlockEditorTests)
+
+add_executable(GeneralTaskTests tests/GeneralTaskTests.cpp)
+target_include_directories(GeneralTaskTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_compile_definitions(GeneralTaskTests PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+if(MSVC)
+    target_compile_options(GeneralTaskTests PRIVATE /utf-8)
+endif()
+target_link_libraries(GeneralTaskTests PRIVATE juce::juce_core
+    PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+add_test(NAME GeneralTaskTests COMMAND GeneralTaskTests)
+
+
+juce_add_console_app(TaskTreeUiTests PRODUCT_NAME "TaskTreeUiTests")
+juce_generate_juce_header(TaskTreeUiTests)
+target_sources(TaskTreeUiTests PRIVATE tests/TaskTreeUiTests.cpp src/TaskTree.cpp)
+target_include_directories(TaskTreeUiTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_compile_definitions(TaskTreeUiTests PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+if(MSVC)
+    target_compile_options(TaskTreeUiTests PRIVATE /utf-8)
+endif()
+target_link_libraries(TaskTreeUiTests PRIVATE juce::juce_gui_extra
+    PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+add_test(NAME TaskTreeUiTests COMMAND TaskTreeUiTests)

@@ -17,6 +17,54 @@ struct WorkspacePage
     std::vector<WorkspaceBlock> blocks;
 };
 
+
+struct TaskProperties
+{
+    juce::String name, notes;
+    Status status = Status::todo;
+    int priority = 3;
+    bool operator==(const TaskProperties&) const = default;
+};
+struct TaskCheckpoint
+{
+    juce::String id, name, notes, archivedAt;
+    Status status = Status::todo;
+    bool operator==(const TaskCheckpoint&) const = default;
+};
+struct WorkspaceTask
+{
+    juce::String id, ownerPageId, archivedAt;
+    TaskProperties properties;
+    std::vector<WorkspaceBlock> blocks;
+    std::vector<TaskCheckpoint> checkpoints;
+};
+inline juce::Array<juce::var> writeBlocks(const std::vector<WorkspaceBlock>& source)
+{
+    juce::Array<juce::var> result;
+    for (const auto& block : source)
+    {
+        auto b = std::make_unique<juce::DynamicObject>();
+        b->setProperty("id", block.id); b->setProperty("name", block.name);
+        b->setProperty("type", block.type); b->setProperty("text", block.text);
+        b->setProperty("url", block.url); b->setProperty("checked", block.checked);
+        result.add(juce::var(b.release()));
+    }
+    return result;
+}
+inline juce::Result readBlocks(const juce::var& raw, std::vector<WorkspaceBlock>& result)
+{
+    if (!raw.isArray()) return juce::Result::fail("Document blocks are missing.");
+    for (const auto& b : *raw.getArray())
+    {
+        if (!b.isObject() || !b.getProperty("checked", {}).isBool())
+            return juce::Result::fail("Invalid block record.");
+        result.push_back({b.getProperty("id", {}).toString(), b.getProperty("type", {}).toString(),
+            b.getProperty("text", {}).toString(), b.getProperty("url", {}).toString(),
+            static_cast<bool>(b.getProperty("checked", false)), b.getProperty("name", {}).toString()});
+    }
+    return juce::Result::ok();
+}
+
 // Song tasks are still stored once in catalog.songs[].tasks. Their owner is
 // CatalogSong::pageId. Later views resolve these same IDs, never copies.
 struct WorkspaceModel
@@ -25,6 +73,7 @@ struct WorkspaceModel
     juce::int64 revision = 0;
     SongCatalog catalog;
     std::vector<WorkspacePage> pages;
+    std::vector<WorkspaceTask> tasks;
 
     const WorkspacePage* findPage(const juce::String& pageId) const
     {
@@ -34,6 +83,16 @@ struct WorkspaceModel
     WorkspacePage* findPage(const juce::String& pageId)
     {
         return const_cast<WorkspacePage*>(std::as_const(*this).findPage(pageId));
+    }
+
+    const WorkspaceTask* findTask(const juce::String& taskId) const
+    {
+        for (const auto& task : tasks) if (task.id == taskId) return &task;
+        return nullptr;
+    }
+    WorkspaceTask* findTask(const juce::String& taskId)
+    {
+        return const_cast<WorkspaceTask*>(std::as_const(*this).findTask(taskId));
     }
 
     void reconcileCatalogPages()
@@ -131,6 +190,23 @@ struct WorkspaceModel
             if ((page.kind == "song" && songPages.count(page.id) == 0)
                 || (page.kind == "dawFolder" && folderIds.count(page.id) == 0))
                 return fail("Orphan DAW page.");
+
+        auto validStatus = [](Status status) { return parseStatus(label(status)) != Status::unmarked; };
+        for (const auto& task : tasks)
+        {
+            const auto* owner = findPage(task.ownerPageId);
+            if (!addId(task.id) || owner == nullptr || owner->kind != "page"
+                || task.properties.name.trim().isEmpty() || !validStatus(task.properties.status)
+                || task.properties.priority < 1 || task.properties.priority > 4)
+                return fail("Invalid general task identity, owner or properties.");
+            for (const auto& cp : task.checkpoints)
+                if (!addId(cp.id) || cp.name.trim().isEmpty() || !validStatus(cp.status))
+                    return fail("Invalid general checkpoint.");
+            for (const auto& block : task.blocks)
+                if (!addId(block.id) || (block.type != "text" && block.type != "heading"
+                    && block.type != "list" && block.type != "checklist" && block.type != "link"))
+                    return fail("Invalid task description block.");
+        }
         return juce::Result::ok();
     }
 
@@ -138,7 +214,7 @@ struct WorkspaceModel
     {
         auto root = std::make_unique<juce::DynamicObject>();
         root->setProperty("format", "ArrangerManagerWorkspace");
-        root->setProperty("schemaVersion", 1);
+        root->setProperty("schemaVersion", 2);
         root->setProperty("id", id);
         root->setProperty("name", name);
         root->setProperty("timezone", timezone);
@@ -168,7 +244,29 @@ struct WorkspaceModel
             p->setProperty("blocks", blocks);
             pageArray.add(juce::var(p.release()));
         }
+
         root->setProperty("pages", pageArray);
+        juce::Array<juce::var> taskArray;
+        for (const auto& task : tasks)
+        {
+            auto t = std::make_unique<juce::DynamicObject>();
+            t->setProperty("id", task.id); t->setProperty("ownerPageId", task.ownerPageId);
+            t->setProperty("archivedAt", task.archivedAt);
+            t->setProperty("name", task.properties.name); t->setProperty("notes", task.properties.notes);
+            t->setProperty("status", label(task.properties.status)); t->setProperty("priority", task.properties.priority);
+            t->setProperty("blocks", writeBlocks(task.blocks));
+            juce::Array<juce::var> checkpoints;
+            for (const auto& cp : task.checkpoints)
+            {
+                auto c = std::make_unique<juce::DynamicObject>();
+                c->setProperty("id", cp.id); c->setProperty("name", cp.name); c->setProperty("notes", cp.notes);
+                c->setProperty("status", label(cp.status)); c->setProperty("archivedAt", cp.archivedAt);
+                checkpoints.add(juce::var(c.release()));
+            }
+            t->setProperty("checkpoints", checkpoints);
+            taskArray.add(juce::var(t.release()));
+        }
+        root->setProperty("tasks", taskArray);
         return juce::JSON::toString(juce::var(root.release()));
     }
 
@@ -250,9 +348,12 @@ struct WorkspaceModel
     static juce::Result fromJson(const juce::String& text, WorkspaceModel& output)
     {
         const auto root = juce::JSON::parse(text);
+        const int version = static_cast<int>(root.getProperty("schemaVersion", 0));
         if (!root.isObject() || root.getProperty("format", {}).toString() != "ArrangerManagerWorkspace"
-            || static_cast<int>(root.getProperty("schemaVersion", 0)) != 1)
+            || (version != 1 && version != 2))
             return juce::Result::fail("Invalid or unsupported workspace schema; file was not modified.");
+        if (version == 1 && root.hasProperty("tasks"))
+            return juce::Result::fail("Schema 1 contains unexpected task data; migration cancelled.");
         WorkspaceModel candidate;
         candidate.id = root.getProperty("id", {}).toString();
         candidate.name = root.getProperty("name", {}).toString();
@@ -279,6 +380,40 @@ struct WorkspaceModel
                     static_cast<bool>(b.getProperty("checked", false)), b.getProperty("name", {}).toString() });
             }
             candidate.pages.push_back(std::move(page));
+        }
+
+        if (version == 2)
+        {
+            const auto taskArray = root.getProperty("tasks", {});
+            if (!taskArray.isArray()) return juce::Result::fail("Workspace tasks are missing.");
+            for (const auto& t : *taskArray.getArray())
+            {
+                if (!t.isObject() || !t.getProperty("priority", {}).isInt())
+                    return juce::Result::fail("Invalid task record.");
+                WorkspaceTask task;
+                task.id = t.getProperty("id", {}).toString(); task.ownerPageId = t.getProperty("ownerPageId", {}).toString();
+                task.archivedAt = t.getProperty("archivedAt", {}).toString();
+                task.properties.name = t.getProperty("name", {}).toString(); task.properties.notes = t.getProperty("notes", {}).toString();
+                const auto status = t.getProperty("status", {}).toString();
+                task.properties.status = parseStatus(status.toStdString());
+                task.properties.priority = static_cast<int>(t.getProperty("priority", 0));
+                if (status != label(task.properties.status)) return juce::Result::fail("Unknown task status.");
+                const auto read = readBlocks(t.getProperty("blocks", {}), task.blocks);
+                if (read.failed()) return read;
+                const auto checkpoints = t.getProperty("checkpoints", {});
+                if (!checkpoints.isArray()) return juce::Result::fail("Task checkpoints are missing.");
+                for (const auto& c : *checkpoints.getArray())
+                {
+                    if (!c.isObject()) return juce::Result::fail("Invalid checkpoint record.");
+                    const auto cpStatus = c.getProperty("status", {}).toString();
+                    TaskCheckpoint cp {c.getProperty("id", {}).toString(), c.getProperty("name", {}).toString(),
+                        c.getProperty("notes", {}).toString(), c.getProperty("archivedAt", {}).toString(),
+                        parseStatus(cpStatus.toStdString())};
+                    if (cpStatus != label(cp.status)) return juce::Result::fail("Unknown checkpoint status.");
+                    task.checkpoints.push_back(std::move(cp));
+                }
+                candidate.tasks.push_back(std::move(task));
+            }
         }
         const auto result = candidate.validate();
         if (result.wasOk()) output = std::move(candidate);

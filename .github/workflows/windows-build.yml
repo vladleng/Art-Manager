@@ -12,19 +12,28 @@ jobs:
       - uses: actions/checkout@v4
       - name: Configure
         run: cmake -S . -B build
-      - name: Build
-        run: cmake --build build --config Release --target ArrangerManagerDesktop ArrangerManagerHub_VST3 ArrangementTagTests SongSnapshotTests SongCatalogTests WorkspaceTests WorkspaceNavigationTests BlockEditorTests --parallel 2
-      - name: Test reader, catalog and workspace migration
+      - name: Build tests
+        run: cmake --build build --config Release --target ArrangementTagTests SongSnapshotTests SongCatalogTests WorkspaceTests WorkspaceNavigationTests BlockEditorTests GeneralTaskTests TaskTreeUiTests --parallel 2
+      - name: Test reader, catalog, workspace and tasks
         run: ctest --test-dir build -C Release --output-on-failure
+      - name: Capture task table preview
+        shell: pwsh
+        run: |
+          $env:ARRANGER_UI_PREVIEW = "1"
+          ./build/TaskTreeUiTests_artefacts/Release/TaskTreeUiTests.exe
+      - name: Build desktop and Hub
+        run: cmake --build build --config Release --target ArrangerManagerDesktop ArrangerManagerHub_VST3 --parallel 2
       - name: Prepare package
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path "package/Arranger Manager 0.1g" | Out-Null
-          Copy-Item -Force "build/ArrangerManagerDesktop_artefacts/Release/Arranger Manager.exe" "package/Arranger Manager 0.1g"
-          Copy-Item -Force "docs/HYBRID-0.1g.md" "package/Arranger Manager 0.1g"
-          Copy-Item -Force "docs/WORKSPACE-0.1e-DECISIONS.md" "package/Arranger Manager 0.1g"
-          Copy-Item -Force "prototypes/editor-web.html" "package/Arranger Manager 0.1g"
+          New-Item -ItemType Directory -Force -Path "package/Arranger Manager 0.1h" | Out-Null
+          Copy-Item -Force "build/ArrangerManagerDesktop_artefacts/Release/Arranger Manager.exe" "package/Arranger Manager 0.1h"
+          Copy-Item -Force "task-tree-preview.png" "package/Arranger Manager 0.1h"
+          Copy-Item -Force "docs/HYBRID-0.1h.md" "package/Arranger Manager 0.1h"
+          Copy-Item -Force "docs/WORKSPACE-0.1e-DECISIONS.md" "package/Arranger Manager 0.1h"
+          Copy-Item -Force "prototypes/editor-web.html" "package/Arranger Manager 0.1h"
       - uses: actions/upload-artifact@v4
         with:
-          name: Arranger-Manager-0.1g-Windows-App
+          name: Arranger-Manager-0.1h-Windows-App
           path: package
+

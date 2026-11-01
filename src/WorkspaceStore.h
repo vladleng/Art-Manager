@@ -11,6 +11,7 @@ public:
     explicit WorkspaceStore(juce::File destination) : file(std::move(destination)) {}
     const juce::File& getFile() const { return file; }
     juce::File backupFile() const { return file.getSiblingFile(file.getFileName() + ".backup"); }
+    juce::File schemaOneFile() const { return file.getSiblingFile(file.getFileName() + ".schema-1.json"); }
     juce::File legacyFile() const { return file.getSiblingFile(file.getFileName() + ".legacy-v1.json"); }
 
     juce::Result load(const juce::String& legacy, const juce::String& lastPath, WorkspaceModel& output)
@@ -21,8 +22,25 @@ public:
             WorkspaceModel candidate;
             const auto result = WorkspaceModel::fromJson(text, candidate);
             if (result.failed()) return result;
+            const int version = static_cast<int>(juce::JSON::parse(text).getProperty("schemaVersion", 0));
+            if (version == 1)
+            {
+                auto backup = schemaOneFile();
+                if (backup.existsAsFile() && !backup.hasIdenticalContentTo(file))
+                    backup = file.getSiblingFile(file.getFileName() + ".schema-1-" + juce::Uuid().toString() + ".json");
+                if (!backup.existsAsFile())
+                {
+                    const auto preserved = atomicCopy(file, backup);
+                    if (preserved.failed()) return preserved;
+                }
+            }
             lastSaved = text;
             loaded = true;
+            if (version == 1)
+            {
+                const auto migrated = save(candidate);
+                if (migrated.failed()) { loaded = false; return migrated; }
+            }
             output = std::move(candidate);
             return juce::Result::ok();
         }
@@ -103,8 +121,22 @@ public:
     }
 
 private:
+    static juce::Result atomicCopy(const juce::File& source, const juce::File& target)
+    {
+        if (target.isDirectory()) return juce::Result::fail("Workspace destination is a directory.");
+        const auto directory = target.getParentDirectory().createDirectory();
+        if (directory.failed()) return directory;
+        juce::TemporaryFile temporary(target);
+        if (!source.copyFileTo(temporary.getFile()) || !source.hasIdenticalContentTo(temporary.getFile()))
+            return juce::Result::fail("Cannot preserve the exact schema 1 file.");
+        if (!temporary.overwriteTargetFileWithTemporary())
+            return juce::Result::fail("Cannot replace the schema 1 backup.");
+        return juce::Result::ok();
+    }
+
     static juce::Result atomicWrite(const juce::File& target, const juce::String& text)
     {
+        if (target.isDirectory()) return juce::Result::fail("Workspace destination is a directory.");
         const auto directory = target.getParentDirectory().createDirectory();
         if (directory.failed()) return directory;
         juce::TemporaryFile temporary(target);
@@ -129,3 +161,4 @@ private:
     bool loaded = false;
 };
 }
+

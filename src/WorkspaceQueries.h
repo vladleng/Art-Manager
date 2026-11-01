@@ -94,6 +94,36 @@ struct WorkspaceQueries
         return nullptr;
     }
 
+
+    static const WorkspaceTask* generalTask(const WorkspaceModel& model, const TaskReference& ref)
+    {
+        const auto* task = model.findTask(ref.taskId);
+        return ref.songId.isEmpty() && task && task->ownerPageId == ref.ownerPageId ? task : nullptr;
+    }
+    static bool taskArchived(const WorkspaceModel& model, const juce::String& id)
+    {
+        const auto* task = model.findTask(id);
+        return !task || task->archivedAt.isNotEmpty() || isArchived(model, task->ownerPageId);
+    }
+    static juce::String taskName(const WorkspaceModel& model, const TaskReference& ref)
+    {
+        if (const auto* t = generalTask(model, ref)) return t->properties.name;
+        if (const auto* t = task(model, ref)) return t->name;
+        return {};
+    }
+    static Status taskStatus(const WorkspaceModel& model, const TaskReference& ref)
+    {
+        if (const auto* t = generalTask(model, ref)) return t->properties.status;
+        if (const auto* t = task(model, ref)) return t->status;
+        return Status::unmarked;
+    }
+    static std::pair<int, int> taskProgress(const WorkspaceTask& task)
+    {
+        int done = 0, total = 0;
+        for (const auto& cp : task.checkpoints) if (cp.archivedAt.isEmpty()) { ++total; if (cp.status == Status::done) ++done; }
+        return {done, total};
+    }
+
     static std::vector<TaskReference> allTasks(const WorkspaceModel& model)
     {
         std::vector<TaskReference> result;
@@ -101,6 +131,8 @@ struct WorkspaceQueries
             if (!isArchived(model, owner.pageId))
                 for (const auto& item : owner.tasks)
                     result.push_back({owner.id, owner.pageId, item.id});
+        for (const auto& item : model.tasks)
+            if (!taskArchived(model, item.id)) result.push_back({{}, item.ownerPageId, item.id});
         return result;
     }
 };

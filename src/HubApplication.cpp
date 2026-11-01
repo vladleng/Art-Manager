@@ -15,7 +15,7 @@ public:
         std::function<void()> saveCatalog, std::function<void(int)> action,
         WorkspaceShell::Execute execute, juce::String selectedView,
         std::function<void(juce::String)> persistView)
-        : juce::DocumentWindow("Arranger Manager 0.1g", juce::Colour(0xff1d232b),
+        : juce::DocumentWindow("Arranger Manager 0.1h", juce::Colour(0xff1d232b),
               juce::DocumentWindow::allButtons), workspaceAction(std::move(action))
     {
         setUsingNativeTitleBar(true);
@@ -25,8 +25,8 @@ public:
         setContentOwned(new WorkspaceShell(workspace, std::move(editor), std::move(execute),
             std::move(selectedView), std::move(persistView)), true);
         setResizable(true, false);
-        setResizeLimits(980, 520, 2000, 1600);
-        centreWithSize(1240, 760);
+        setResizeLimits(1240, 760, 2300, 1600);
+        centreWithSize(1480, 900);
         setVisible(true);
     }
     ~HubWindow() override { setMenuBar(nullptr); }
@@ -58,7 +58,7 @@ class HubApplication final : public juce::JUCEApplication
 {
 public:
     const juce::String getApplicationName() override { return "Arranger Manager"; }
-    const juce::String getApplicationVersion() override { return "0.1g"; }
+    const juce::String getApplicationVersion() override { return "0.1h"; }
     bool moreThanOneInstanceAllowed() override { return false; }
 
     void initialise(const juce::String& commandLine) override
@@ -136,8 +136,8 @@ private:
                 if (action == 1)
                 {
                     juce::NativeMessageBox::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
-                        "Workspace storage", "Version: 0.1g\nWorkspace ID: " + workspace.id
-                            + "\nSchema: 1\nRevision: " + juce::String(workspace.revision)
+                        "Workspace storage", "Version: 0.1h\nWorkspace ID: " + workspace.id
+                            + "\nSchema: 2\nRevision: " + juce::String(workspace.revision)
                             + "\nSongs: " + juce::String(static_cast<int>(workspace.catalog.songs.size()))
                             + "\nPages: " + juce::String(static_cast<int>(workspace.pages.size()))
                             + "\nFile: " + store->getFile().getFullPathName()
