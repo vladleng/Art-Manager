@@ -155,7 +155,7 @@ int main()
     WorkspaceModel old;
     REQUIRE(WorkspaceModel::fromJson(model.toJson(), old).wasOk(), "New schema-2 extension cannot round trip");
     REQUIRE(old.findTask(grandchild)->parentTaskId == child, "Parent relationship missing after parse");
-    REQUIRE(old.findTask(two)->parentTaskId.isEmpty(), "Old root gained an unexpected parent");
+    REQUIRE(old.findTask(two)->parentTaskId == one, "Moved task lost its parent on JSON round trip");
 
     WorkspaceStore restart(path);
     WorkspaceModel loaded;
