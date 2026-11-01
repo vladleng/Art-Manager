@@ -35,20 +35,16 @@ WorkspaceShell::WorkspaceShell(arranger::WorkspaceModel& data,
     breadcrumb.setColour(juce::Label::textColourId, mr::colour(mr::tokens::muted));
     description.setColour(juce::Label::textColourId, mr::colour(mr::tokens::meta));
     addPage.setButtonText(text("+ Страница"));
+    addNote.setButtonText(text("+ Заметка"));
     addChild.setButtonText(text("+ Вложенная"));
     rename.setButtonText(text("Переименовать"));
     move.setButtonText(text("Переместить"));
     archiveButton.setButtonText(text("В архив"));
-    for (auto* tab : { &blocksTab, &tasksTab })
+    for (auto* button : { &addPage, &addNote, &addChild, &rename, &move, &archiveButton })
     {
-        tab->setColour(juce::TextButton::buttonColourId, mr::colour(mr::tokens::panel));
-        tab->setColour(juce::TextButton::buttonOnColourId, mr::colour(mr::tokens::selected));
-        tab->setColour(juce::TextButton::textColourOnId, mr::colour(mr::tokens::bright));
+        button->setColour(juce::TextButton::buttonColourId, mr::colour(mr::tokens::selected));
+        addAndMakeVisible(button);
     }
-    addPage.setColour(juce::TextButton::buttonColourId, mr::colour(mr::tokens::selected));
-    blocksTab.setButtonText(text("Содержимое"));
-    tasksTab.setButtonText(text("Задачи"));
-    for (auto* button : { &addPage, &addChild, &rename, &move, &archiveButton, &blocksTab, &tasksTab }) addAndMakeVisible(button);
     for (auto* list : { &nav, &archive })
     {
         addAndMakeVisible(list);
@@ -76,12 +72,11 @@ WorkspaceShell::WorkspaceShell(arranger::WorkspaceModel& data,
     addAndMakeVisible(taskDetails.get());
 
     addPage.onClick = [this] { promptPage({}); };
+    addNote.onClick = [this] { promptPage({}, {}, true); };
     addChild.onClick = [this] { promptPage(selectedPage()); };
     rename.onClick = [this] { promptPage({}, selectedPage()); };
     move.onClick = [this] { showMoveMenu(selectedPage(), move.getScreenBounds().getBottomLeft()); };
     archiveButton.onClick = [this] { archivePage(selectedPage()); };
-    blocksTab.onClick = [this] { select("page:" + selectedPage()); };
-    tasksTab.onClick = [this] { select("pageTasks:" + selectedPage()); };
     refresh();
 }
 
@@ -103,16 +98,15 @@ void WorkspaceShell::paint(juce::Graphics& g)
 void WorkspaceShell::resized()
 {
     brand.setBounds(14, 12, 210, 32);
-    addPage.setBounds(12, 54, 216, 30);
+    addPage.setBounds(12, 54, 104, 30);
+    addNote.setBounds(124, 54, 104, 30);
     nav.setBounds(10, 98, 220, juce::jmax(20, getHeight() - 110));
     auto content = getLocalBounds().withTrimmedLeft(250).reduced(14);
     breadcrumb.setBounds(content.removeFromTop(28));
     title.setBounds(content.removeFromTop(48));
     description.setBounds(content.removeFromTop(24));
     content.removeFromTop(8);
-    auto tabs = selectedPage().isNotEmpty() ? content.removeFromTop(32) : juce::Rectangle<int>();
-    blocksTab.setBounds(tabs.removeFromLeft(116).reduced(2));
-    tasksTab.setBounds(tabs.removeFromLeft(110).reduced(2));
+    // Note pages and task pages are separate kinds; no redundant two-tab UI.
     content.removeFromTop(6);
     if (viewKey == "view:legacy")
         legacySummary.setBounds(content.removeFromTop(juce::jmin(220, content.getHeight() / 2)).reduced(0, 4));
@@ -129,6 +123,7 @@ juce::String WorkspaceShell::selectedPage() const
 {
     if (viewKey.startsWith("page:")) return viewKey.substring(5);
     if (viewKey.startsWith("pageTasks:")) return viewKey.substring(10);
+    if (viewKey.startsWith("pageBlocks:")) return viewKey.substring(11);
     return {};
 }
 
@@ -141,12 +136,12 @@ void WorkspaceShell::refresh()
     navigation = {{"view:tasks", text("Все задачи"), 0}, {"view:legacy", text("Архив песен"), 0}};
     for (const auto& row : arranger::WorkspaceQueries::activePages(model))
         if (const auto* page = model.findPage(row.id))
-            navigation.push_back({"page:" + page->id, page->title, row.depth});
+            navigation.push_back({"page:" + page->id, (page->kind == "note" ? text("✎ ") : juce::String()) + page->title, row.depth});
     archived = arranger::WorkspaceQueries::archivedRoots(model);
     for (const auto& task : model.tasks) if (task.archivedAt.isNotEmpty()) archived.push_back("task:" + task.id);
     navigation.push_back({"view:archive", text("Архив") + " (" + juce::String(static_cast<int>(archived.size())) + ")", 0});
     juce::String navKey = viewKey;
-    if (viewKey.startsWith("pageTasks:")) navKey = "page:" + selectedPage();
+    if (viewKey.startsWith("pageTasks:") || viewKey.startsWith("pageBlocks:")) navKey = "page:" + selectedPage();
     if (viewKey.startsWith("task:"))
     {
         const auto* task = model.findTask(viewKey.substring(5));
@@ -160,7 +155,7 @@ void WorkspaceShell::refresh()
     nav.selectRow(selected);
     nav.repaint();
     taskReferences = arranger::WorkspaceQueries::allTasks(model);
-    if (viewKey.startsWith("pageTasks:"))
+    if (viewKey.startsWith("pageTasks:") || viewKey.startsWith("page:") || viewKey.startsWith("pageBlocks:"))
         std::erase_if(taskReferences, [&](const auto& ref) { return ref.ownerPageId != selectedPage(); });
     else if (viewKey == "view:legacy")
         std::erase_if(taskReferences, [](const auto& ref) { return ref.songId.isEmpty(); });
