@@ -11,20 +11,23 @@ class HubWindow final : public juce::DocumentWindow, private juce::MenuBarModel
 public:
     HubWindow(arranger::WorkspaceModel& workspace, std::function<void(int)> action,
         WorkspaceShell::Execute execute, juce::String selectedView,
-        std::function<void(juce::String)> persistView)
+        std::function<void(juce::String)> persistView,
+        juce::String savedColumns, std::function<void(juce::String)> persistColumns)
         : juce::DocumentWindow("Arranger Manager " + juce::String(ARRANGER_MANAGER_VERSION), juce::Colour(0xff1d232b),
               juce::DocumentWindow::allButtons), workspaceAction(std::move(action))
     {
+        setLookAndFeel(&theme);
         setUsingNativeTitleBar(true);
         setMenuBar(this);
         setContentOwned(new WorkspaceShell(workspace, std::move(execute),
-            std::move(selectedView), std::move(persistView)), true);
+            std::move(selectedView), std::move(persistView), std::move(savedColumns),
+            std::move(persistColumns)), true);
         setResizable(true, false);
         setResizeLimits(1240, 760, 2300, 1600);
         centreWithSize(1480, 900);
         setVisible(true);
     }
-    ~HubWindow() override { setMenuBar(nullptr); }
+    ~HubWindow() override { setMenuBar(nullptr); setLookAndFeel(nullptr); }
     void refreshWorkspace()
     {
         if (auto* shell = dynamic_cast<WorkspaceShell*>(getContentComponent())) shell->refresh();
@@ -43,9 +46,12 @@ private:
         menu.addItem(1, "Storage information");
         menu.addSeparator();
         menu.addItem(3, "Restore previous workspace backup...");
+        menu.addSeparator();
+        menu.addItem(4, "Undo / Redo last workspace change");
         return menu;
     }
     void menuItemSelected(int item, int) override { workspaceAction(item); }
+    mr::ManagerTheme theme;
     std::function<void(int)> workspaceAction;
 };
 
@@ -121,6 +127,15 @@ private:
                             + "\nBackup: " + store->backupFile().getFullPathName()
                             + "\nLegacy catalog backup: " + store->legacyFile().getFullPathName(), window.get());
                 }
+                else if (action == 4)
+                {
+                    if (!window || !window->flushEdits()) return;
+                    const auto result = controller->undoLast();
+                    if (result.wasOk()) window->refreshWorkspace();
+                    else juce::NativeMessageBox::showMessageBoxAsync(
+                        juce::MessageBoxIconType::WarningIcon,
+                        "Undo not available", result.getErrorMessage(), window.get());
+                }
                 else if (action == 3)
                 {
                     if (!window->flushEdits()) return;
@@ -139,6 +154,7 @@ private:
                                 return;
                             }
                             window.reset();
+                            controller.reset(); // Do not carry Undo history across a restored workspace.
                             const auto loaded = store->load({}, {}, workspace);
                             if (loaded.failed()) failStartup(loaded.getErrorMessage());
                             else openMainWindow();
@@ -156,6 +172,15 @@ private:
                 if (auto* user = settings.getUserSettings())
                 {
                     user->setValue("workspaceView", key);
+                    user->saveIfNeeded();
+                }
+            },
+            settings.getUserSettings()->getValue("taskColumnWidths"),
+            [this](juce::String widths)
+            {
+                if (auto* user = settings.getUserSettings())
+                {
+                    user->setValue("taskColumnWidths", widths);
                     user->saveIfNeeded();
                 }
             });

@@ -28,49 +28,131 @@ int main()
     juce::ScopedJuceInitialiser_GUI gui;
     arranger::WorkspaceModel model;
     model.catalog.addSong("C:/Fixture/legacy.song");
-    const auto legacyId = model.catalog.addTask(model.catalog.songs[0].path,"Local legacy task"); model.reconcileCatalogPages();
-    arranger::WorkspaceCommands commands(model); juce::String page, first, second;
-    REQUIRE(commands.createPage({},juce::String::fromUTF8("Разное"),page).wasOk(),"Page");
-    REQUIRE(commands.createTask(page,juce::String::fromUTF8("Идеи для MRS"),first).wasOk(),"Task");
-    REQUIRE(commands.createTask(page,juce::String::fromUTF8("Репетиция"),second).wasOk(),"Second task");
-    for (const auto* name : {"Гармония","Рыба","Репетиция","Доработка"})
-    { juce::String id; REQUIRE(commands.createCheckpoint(first,juce::String::fromUTF8(name),id).wasOk(),"Checkpoint"); }
-    bool failWrites=false, allowFlush=true; int opened=0;
+    const auto legacyId = model.catalog.addTask(model.catalog.songs[0].path, "Local legacy task");
+    model.reconcileCatalogPages();
+    arranger::WorkspaceCommands commands(model);
+    juce::String page, first, second;
+    REQUIRE(commands.createPage({}, juce::String::fromUTF8("Разное"), page).wasOk(), "Page");
+    REQUIRE(commands.createTask(page, juce::String::fromUTF8("Идеи для MRS"), first).wasOk(), "Task");
+    REQUIRE(commands.createTask(page, juce::String::fromUTF8("Репетиция"), second).wasOk(), "Second task");
+    for (const auto* name : {"Гармония", "Рыба", "Репетиция", "Доработка"})
+    {
+        juce::String id;
+        REQUIRE(commands.createCheckpoint(first, juce::String::fromUTF8(name), id).wasOk(), "Old checkpoint");
+    }
+    bool failWrites = false, allowFlush = true; int opened = 0;
+    juce::String widthsSaved;
     mr::ManagerTheme theme;
-    TaskTree tree(model,[&](const arranger::WorkspaceAction& action) { return failWrites ? juce::Result::fail("Disk failure fixture") : action(commands); },
-        [&] { return allowFlush; },[&](arranger::TaskReference) { ++opened; },[] {},[](juce::String) {});
-    tree.setLookAndFeel(&theme); tree.setSize(1180,520); const auto refs=arranger::WorkspaceQueries::allTasks(model); tree.setTasks(refs);
-    auto* list=dynamic_cast<juce::ListBox*>(tree.getChildComponent(0)); REQUIRE(list,"List");
-    auto* view=list->getListBoxModel(); REQUIRE(view->getNumRows()==3 && list->getRowHeight()==32,"Compact collapsed rows");
-    view->listBoxItemClicked(1,click(*list,10)); REQUIRE(view->getNumRows()==9,"Task expands notes, four children, inline add");
-    auto* edit=dynamic_cast<juce::TextEditor*>(tree.getChildComponent(1)); REQUIRE(edit,"Inline editor");
-    view->listBoxItemDoubleClicked(2,click(*list,200)); REQUIRE(edit->isVisible() && opened==0,"Notes opened source instead of inline editing");
-    edit->setText(juce::String::fromUTF8("Проверить демо перед записью."),false);
-    REQUIRE(tree.flush().wasOk() && model.findTask(first)->properties.notes==edit->getText(),"Notes not saved from actual field");
-    view->listBoxItemDoubleClicked(1,click(*list,200)); edit->setText("Cancelled name",false); edit->onEscapeKey();
-    REQUIRE(!edit->isVisible() && model.findTask(first)->properties.name!= "Cancelled name","Escape changed model");
-    view->listBoxItemClicked(3,click(*list,25)); REQUIRE(view->getNumRows()==10,"Subtask note expansion");
-    view->listBoxItemClicked(8,click(*list,200)); REQUIRE(edit->isVisible(),"Inline add row did not activate");
-    edit->setText(juce::String::fromUTF8("Записать финальный дубль"),false); edit->onReturnKey();
-    REQUIRE(model.findTask(first)->checkpoints.size()==5 && !edit->isVisible(),"Enter did not create exactly one subtask");
-    view->listBoxItemDoubleClicked(2,click(*list,200)); failWrites=true; edit->setText("Unsaved draft",false);
-    REQUIRE(tree.flush().failed() && edit->isVisible() && edit->getText()=="Unsaved draft","Failed write lost draft");
-    REQUIRE(model.findTask(first)->properties.notes!="Unsaved draft","Failed write changed live data");
-    failWrites=false; edit->onEscapeKey();
-    view->listBoxItemDoubleClicked(2,click(*list,200)); edit->setText(juce::String::fromUTF8("Автосохранение при выходе из ячейки"),false); edit->onFocusLost();
-    REQUIRE(model.findTask(first)->properties.notes==edit->getText(),"Blur did not save notes");
-    view->listBoxItemClicked(0,click(*list,10));
-    view->listBoxItemDoubleClicked(1,click(*list,200)); edit->setText("Local notes without DAW",false); REQUIRE(tree.flush().wasOk(),"Legacy inline notes save");
-    REQUIRE(model.catalog.localNote(model.catalog.songs[0].path,arranger::taskNoteKey(legacyId))=="Local notes without DAW","Legacy note identity");
-    view->listBoxItemClicked(2,click(*list,200)); edit->setText("Legacy subtask",false); edit->onReturnKey();
-    REQUIRE(model.catalog.songs[0].tasks[0].checkpoints.size()==1,"Legacy inline subtask failed");
-    const auto cp=model.findTask(first)->checkpoints[0].id; const int beforeArchive=view->getNumRows();
-    REQUIRE(commands.archiveCheckpoint(first,cp).wasOk(),"Archive"); tree.setTasks(refs);
-    REQUIRE(view->getNumRows()==beforeArchive-2,"Archived notes/child leaked");
-    REQUIRE(commands.restoreCheckpoint(first,cp).wasOk(),"Restore"); tree.setTasks(refs);
-    REQUIRE(view->getNumRows()==beforeArchive,"Restore lost expansion");
-    allowFlush=false; tree.showTaskMenu(refs[1],{0,0}); REQUIRE(!juce::PopupMenu::dismissAllActiveMenus(),"Menu bypassed flush guard"); allowFlush=true;
-    REQUIRE(snapshot(tree,"task-table-compact.png"),"Task snapshot");
+    TaskTree tree(model,
+        [&](const arranger::WorkspaceAction& action) {
+            return failWrites ? juce::Result::fail("Disk failure fixture") : action(commands);
+        },
+        [&] { return allowFlush; },
+        [&](arranger::TaskReference) { ++opened; },
+        [] {}, [](juce::String) {}, {}, {},
+        [&](juce::String widths) { widthsSaved = widths; });
+    tree.setLookAndFeel(&theme);
+    tree.setSize(1180, 520);
+    const auto refs = arranger::WorkspaceQueries::allTasks(model);
+    tree.setTasks(refs);
+    auto* list = dynamic_cast<juce::ListBox*>(tree.getChildComponent(0));
+    REQUIRE(list && list->getListBoxModel(), "ListBox");
+    auto* view = list->getListBoxModel();
+    REQUIRE(view->getNumRows() == 3 && list->getRowHeight() == 40, "Compact root task table");
+
+    // Notes now live in the right-hand column, not in an expandable detail row.
+    view->listBoxItemClicked(1, click(*list, 10));
+    REQUIRE(view->getNumRows() == 8, "Opening task must show four checkpoints and one add row, but no Notes row");
+    auto* edit = dynamic_cast<juce::TextEditor*>(tree.getChildComponent(1));
+    REQUIRE(edit, "Inline editor");
+    view->listBoxItemDoubleClicked(1, click(*list, 748));
+    REQUIRE(edit->isVisible() && edit->isMultiLine() && opened == 0, "Notes did not open in the column");
+    edit->setText(juce::String::fromUTF8("Проверить демо перед записью."), false);
+    REQUIRE(tree.flush().wasOk() && model.findTask(first)->properties.notes == edit->getText(),
+        "Notes did not save from column");
+    view->listBoxItemDoubleClicked(1, click(*list, 200));
+    edit->setText("Cancelled name", false); edit->onEscapeKey();
+    REQUIRE(!edit->isVisible() && model.findTask(first)->properties.name != "Cancelled name",
+        "Escape changed model");
+
+    // The inline "+ subtask" action creates a normal nested task, not another checkpoint.
+    view->listBoxItemClicked(6, click(*list, 200));
+    REQUIRE(edit->isVisible(), "Inline add was not activated");
+    edit->setText(juce::String::fromUTF8("Записать финальный дубль"), false); edit->onReturnKey();
+    REQUIRE(model.findTask(first)->checkpoints.size() == 4 && model.tasks.size() == 3,
+        "New nested task should not overwrite legacy checkpoints");
+    juce::String child;
+    for (const auto& task : model.tasks) if (task.parentTaskId == first) child = task.id;
+    REQUIRE(child.isNotEmpty(), "New task has no parent task ID");
+
+    view->listBoxItemDoubleClicked(2, click(*list, 748));
+    failWrites = true; edit->setText("Unsaved child notes", false);
+    REQUIRE(tree.flush().failed() && edit->isVisible() && edit->getText() == "Unsaved child notes",
+        "Failed write lost draft");
+    REQUIRE(model.findTask(child)->properties.notes != "Unsaved child notes", "Failed write mutated data");
+    failWrites = false; edit->onEscapeKey();
+
+    view->listBoxItemDoubleClicked(2, click(*list, 748));
+    edit->setText("Child note after blur", false); edit->onFocusLost();
+    REQUIRE(model.findTask(child)->properties.notes == "Child note after blur", "Blur did not save child notes");
+
+    // Legacy song Notes preserve their original stable key in the same column.
+    view->listBoxItemDoubleClicked(0, click(*list, 748));
+    edit->setText("Local notes without DAW", false);
+    REQUIRE(tree.flush().wasOk(), "Legacy Notes save");
+    REQUIRE(model.catalog.localNote(model.catalog.songs[0].path,
+        arranger::taskNoteKey(legacyId)) == "Local notes without DAW", "Legacy note identity");
+    view->listBoxItemClicked(0, click(*list, 10));
+    view->listBoxItemClicked(1, click(*list, 200));
+    edit->setText("Legacy subtask", false); edit->onReturnKey();
+    REQUIRE(model.catalog.songs[0].tasks[0].checkpoints.size() == 1,
+        "Legacy inline checkpoint creation failed");
+
+    const auto cp = model.findTask(first)->checkpoints[0].id;
+    const int beforeArchive = view->getNumRows();
+    REQUIRE(commands.archiveCheckpoint(first, cp).wasOk(), "Archive");
+    tree.setTasks(refs);
+    REQUIRE(view->getNumRows() == beforeArchive - 1, "Archived child leaked");
+    REQUIRE(commands.restoreCheckpoint(first, cp).wasOk(), "Restore");
+    tree.setTasks(refs);
+    REQUIRE(view->getNumRows() == beforeArchive, "Restoring checkpoint changed row count");
+    allowFlush = false; tree.showTaskMenu(refs[1], {0, 0});
+    REQUIRE(!juce::PopupMenu::dismissAllActiveMenus(), "Menu bypassed flush guard");
+    allowFlush = true;
+    REQUIRE(tree.columnSettings().isNotEmpty(), "Column settings unavailable");
+    REQUIRE(snapshot(tree, "task-table-compact.png"), "Task snapshot");
+
+    // Real table drop target dispatch: a nested task is dropped inside another
+    // task row, not directly sent to a domain command by this test.
+    arranger::WorkspaceModel dragModel;
+    arranger::WorkspaceCommands dragCmd(dragModel);
+    juce::String dragPage, from, to, nested;
+    REQUIRE(dragCmd.createPage({}, "Test page", dragPage).wasOk(), "Drag owner page");
+    REQUIRE(dragCmd.createTask(dragPage, "Parent A", from).wasOk(), "Drag source root");
+    REQUIRE(dragCmd.createTask(dragPage, "Parent B", to).wasOk(), "Drag destination root");
+    REQUIRE(dragCmd.createSubtask(from, "Nested task", nested).wasOk(), "Drag child");
+    TaskTree dragTree(dragModel, [&](const auto& action) { return action(dragCmd); },
+        [] { return true; }, [](arranger::TaskReference) {}, [] {}, [](juce::String) {});
+    dragTree.setLookAndFeel(&theme);
+    dragTree.setSize(1180, 360);
+    dragTree.setTasks(arranger::WorkspaceQueries::allTasks(dragModel));
+    auto* dragList = dynamic_cast<juce::ListBox*>(dragTree.getChildComponent(0));
+    REQUIRE(dragList && dragList->getListBoxModel(), "Drag list");
+    dragList->getListBoxModel()->listBoxItemClicked(0, click(*dragList, 10));
+    REQUIRE(dragList->getListBoxModel()->getNumRows() == 4, "Nested drag rows");
+    const auto targetRow = dragList->getRowPosition(3, true);
+    const auto targetPoint = juce::Point<int>(200, dragList->getY() + targetRow.getY()
+        + dragList->getRowHeight() / 2);
+    const auto descriptor = "manager-task|" + nested + "|" + dragPage + "|" + from;
+    const juce::DragAndDropTarget::SourceDetails drop {juce::var(descriptor), dragList, targetPoint};
+    REQUIRE(dragTree.isInterestedInDragSource(drop), "Table ignored task drag source");
+    dragTree.itemDragMove(drop);
+    dragTree.itemDropped(drop);
+    REQUIRE(dragModel.findTask(nested)->parentTaskId == to,
+        "Dropping a nested row did not reparent the actual task");
+    dragTree.setLookAndFeel(nullptr);
+
+
 
     arranger::BlockEditorSession::Blocks saved {{"heading-id","heading",{},{},false,juce::String::fromUTF8("Материалы проекта")},
         {"paragraph-id","text",juce::String::fromUTF8("Здесь можно писать описание, идеи и заметки прямо на странице."),{},false,{}}};

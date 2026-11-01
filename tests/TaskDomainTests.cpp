@@ -96,6 +96,15 @@ int main()
         "Reparent copied or corrupted the original task");
     REQUIRE(WorkspaceQueries::allTasks(model).size() == 1,
         "Child of a moved root appeared as a duplicate top-level task");
+    // Persisted one-step Undo/Redo after a cross-page move, retaining revision order.
+    const auto revisionBeforeUndo = model.revision;
+    REQUIRE(controller.undoLast().wasOk(), "Undo of cross-page move");
+    REQUIRE(model.findTask(two)->ownerPageId == pageA && model.findTask(two)->parentTaskId.isEmpty()
+        && model.revision > revisionBeforeUndo, "Undo did not restore previous parent and revision");
+    REQUIRE(controller.undoLast().wasOk(), "Redo of cross-page move");
+    REQUIRE(model.findTask(two)->ownerPageId == pageB && model.findTask(two)->parentTaskId == one,
+        "Redo did not restore task hierarchy");
+
 
     std::set<juce::String> expanded {"task:" + one, "task:" + child};
     const auto tree = taskTreeRows(model, WorkspaceQueries::allTasks(model), expanded);

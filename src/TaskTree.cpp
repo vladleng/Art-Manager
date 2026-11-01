@@ -12,8 +12,10 @@ int statusId(arranger::Status value)
 }
 struct Columns
 {
-    int name = 126, progress, priority, source;
-    explicit Columns(int width) : progress(juce::jmax(240, width - 340)), priority(progress + 140), source(priority + 70) {}
+    int name = 126, progress, priority, notes, source, end;
+    Columns(int n, int pr, int p, int nt, int s)
+        : progress(name + n), priority(progress + pr), notes(priority + p),
+          source(notes + nt), end(source + s) {}
 };
 void pill(juce::Graphics& g, juce::String caption, juce::Colour colour, int x, int y, int width, bool dot, mr::Icons* icons = nullptr, const char* iconId = nullptr)
 {
@@ -49,17 +51,31 @@ juce::String note(const arranger::WorkspaceModel& model, const arranger::TaskTre
 }
 TaskTree::TaskTree(arranger::WorkspaceModel& data, Execute run, std::function<bool()> flushPending,
     std::function<void(arranger::TaskReference)> openTask, std::function<void()> notify,
-    std::function<void(juce::String)> archiveTask, std::function<void()> newTask)
+    std::function<void(juce::String)> archiveTask, std::function<void()> newTask,
+    juce::String savedColumns, std::function<void(juce::String)> persist)
     : model(data), execute(std::move(run)), before(std::move(flushPending)), open(std::move(openTask)),
-      changed(std::move(notify)), create(std::move(newTask)), archive(std::move(archiveTask))
+      changed(std::move(notify)), create(std::move(newTask)), archive(std::move(archiveTask)),
+      persistColumns(std::move(persist))
 {
-    addAndMakeVisible(list); list.setRowHeight(32); list.setMultipleSelectionEnabled(false);
+    auto saved = juce::StringArray::fromTokens(savedColumns, ",", "");
+    if (saved.size() == 5)
+    {
+        const int values[] = {saved[0].getIntValue(), saved[1].getIntValue(), saved[2].getIntValue(),
+            saved[3].getIntValue(), saved[4].getIntValue()};
+        if (values[0] >= 180 && values[0] <= 900 && values[1] >= 110 && values[1] <= 400
+            && values[2] >= 80 && values[2] <= 240 && values[3] >= 160 && values[3] <= 900
+            && values[4] >= 100 && values[4] <= 600)
+            widths = {values[0], values[1], values[2], values[3], values[4]};
+    }
+    addAndMakeVisible(list); list.setRowHeight(40); list.setMultipleSelectionEnabled(false);
+    resizeColumns();
     list.setColour(juce::ListBox::backgroundColourId, mr::colour(mr::tokens::canvas));
     list.setColour(juce::ListBox::outlineColourId, juce::Colours::transparentBlack);
     addChildComponent(inlineEditor); inlineEditor.setFont(juce::FontOptions(14.0f));
     inlineEditor.addKeyListener(this);
     inlineEditor.onReturnKey = [this] { flush(); };
     inlineEditor.onEscapeKey = [this] { cancelInline(); };
+    inlineEditor.onTextChange = [this] { if (editing && editing->notes) positionInline(); };
     inlineEditor.onFocusLost = [this] { if (!committing && editing) flush(); };
     setWantsKeyboardFocus(true);
 }
@@ -79,26 +95,36 @@ void TaskTree::rebuild()
 void TaskTree::paint(juce::Graphics& g)
 {
     g.fillAll(mr::colour(mr::tokens::canvas));
-    const Columns columns(list.getVisibleContentWidth());
+    const Columns columns(widths.name, widths.progress, widths.priority, widths.notes, widths.source);
     g.setColour(mr::colour(mr::tokens::outline)); g.drawHorizontalLine(31, 0, static_cast<float>(getWidth()));
     g.setColour(mr::colour(mr::tokens::muted)); g.setFont(juce::FontOptions(12.0f));
+    const int scroll = list.getViewport() != nullptr ? list.getViewport()->getViewPositionX() : 0;
+    g.saveState(); g.addTransform(juce::AffineTransform::translation(static_cast<float>(-scroll), 0));
     g.drawText(tr("Статус"), 26, 0, 100, 31, juce::Justification::centredLeft);
     g.drawText(checkpointsOnly ? tr("Подзадача") : tr("Задача"), columns.name, 0, columns.progress - columns.name, 31, juce::Justification::centredLeft);
     g.drawText(tr("Прогресс"), columns.progress + 12, 0, 135, 31, juce::Justification::centredLeft);
     g.drawText(tr("Приоритет"), columns.priority + 5, 0, 72, 31, juce::Justification::centredLeft);
-    if (!checkpointsOnly) g.drawText(tr("Страница"), columns.source + 12, 0, getWidth() - columns.source - 16, 31, juce::Justification::centredLeft);
+    g.drawText(tr("Заметки"), columns.notes + 9, 0, widths.notes - 12, 31, juce::Justification::centredLeft);
+    if (!checkpointsOnly) g.drawText(tr("Страница"), columns.source + 9, 0, widths.source - 12, 31, juce::Justification::centredLeft);
+    for (auto boundary : {columns.progress, columns.priority, columns.notes, columns.source, columns.end})
+    {
+        g.setColour(mr::colour(mr::tokens::outline));
+        g.drawVerticalLine(boundary, 0, 31.0f);
+    }
+    g.restoreState();
     if (rows.empty())
     {
         g.setColour(mr::colour(mr::tokens::muted));
         g.drawText(tr("Пока пусто. Правый клик — добавить задачу или чек-поинт."), 18, 55, getWidth() - 36, 50, juce::Justification::centredLeft, true);
     }
 }
-void TaskTree::resized() { list.setBounds(getLocalBounds().withTrimmedTop(32)); positionInline(); }
+void TaskTree::resized() { list.setBounds(getLocalBounds().withTrimmedTop(32)); resizeColumns(); positionInline(); }
 int TaskTree::getNumRows() { return static_cast<int>(rows.size()); }
 void TaskTree::paintListBoxItem(int index, juce::Graphics& g, int width, int height, bool selected)
 {
     if (index < 0 || index >= getNumRows()) return;
-    const auto& row = rows[static_cast<size_t>(index)]; const Columns columns(width);
+    const auto& row = rows[static_cast<size_t>(index)];
+    const Columns columns(widths.name, widths.progress, widths.priority, widths.notes, widths.source);
     if (selected)
     {
         g.setColour(mr::colour(mr::tokens::selected)); g.fillRoundedRectangle(1, 1, static_cast<float>(width - 2), static_cast<float>(height - 2), 5);
@@ -112,13 +138,6 @@ void TaskTree::paintListBoxItem(int index, juce::Graphics& g, int width, int hei
     {
         g.setColour(mr::colour(mr::tokens::muted)); g.setFont(juce::FontOptions(13.0f));
         g.drawText(tr("+ Новая подзадача"), columns.name + indent + 18, 0, width - columns.name - indent - 24, height, juce::Justification::centredLeft, true);
-        return;
-    }
-    if (row.notes)
-    {
-        auto caption = note(model, row); if (caption.isEmpty()) caption = tr("Заметок пока нет");
-        g.setColour(mr::colour(mr::tokens::muted)); g.setFont(juce::FontOptions(13.0f));
-        g.drawFittedText(caption, columns.name + indent + 20, 4, width - columns.name - indent - 36, height - 8, juce::Justification::centredLeft, 2, 1.0f);
         return;
     }
     juce::Path arrow;
@@ -169,11 +188,17 @@ void TaskTree::paintListBoxItem(int index, juce::Graphics& g, int width, int hei
     {
         pill(g, "P" + juce::String(priority), mr::priorityFill(priority), columns.priority + 12, 6, 30, false);
     }
+    const auto caption = note(model, row);
+    g.setColour(mr::colour(caption.isEmpty() ? mr::tokens::muted : mr::tokens::bright));
+    g.setFont(juce::FontOptions(12.0f));
+    g.drawFittedText(caption.isEmpty() ? tr("Заметок пока нет") : caption,
+        columns.notes + 8, 3, widths.notes - 16, height - 6,
+        juce::Justification::centredLeft, 2, 0.85f);
     if (!checkpointsOnly && row.checkpointId.isEmpty())
     {
         g.setColour(mr::colour(mr::tokens::muted)); g.setFont(juce::FontOptions(12.0f));
-        g.drawText(arranger::WorkspaceQueries::breadcrumb(model, row.reference.ownerPageId), columns.source + 12, 0,
-            juce::jmax(0, width - columns.source - 20), height, juce::Justification::centredLeft, true);
+        g.drawText(arranger::WorkspaceQueries::breadcrumb(model, row.reference.ownerPageId), columns.source + 9, 0,
+            widths.source - 14, height, juce::Justification::centredLeft, true);
     }
     g.setColour(mr::colour(mr::tokens::outline));
 
@@ -190,13 +215,12 @@ void TaskTree::listBoxItemClicked(int index, const juce::MouseEvent& event)
     if (index < 0 || index >= getNumRows()) return;
     const auto row = rows[static_cast<size_t>(index)];
     if (flush().failed()) return;
-    const Columns columns(list.getVisibleContentWidth());
+    const Columns columns(widths.name, widths.progress, widths.priority, widths.notes, widths.source);
     if (event.mods.isPopupMenu()) { if (row.addChild) beginInline(row); else showMenu(row, event.getScreenPosition()); return; }
     if (row.addChild) { beginInline(row); return; }
-    if (row.notes) return;
     if (event.x < 22 + row.depth * 14) { for (int i = 0; i < getNumRows(); ++i) if (rows[static_cast<size_t>(i)].key() == row.key()) { toggle(i); break; } return; }
     if (event.x < columns.name) { statusMenu(row,event.getScreenPosition()); return; }
-    if (event.x >= columns.priority && event.x < columns.source && row.checkpointId.isEmpty())
+    if (event.x >= columns.priority && event.x < columns.notes && row.checkpointId.isEmpty())
     {
         if (const auto* task = arranger::WorkspaceQueries::generalTask(model,row.reference))
         {
@@ -228,11 +252,56 @@ void TaskTree::listBoxItemClicked(int index, const juce::MouseEvent& event)
 void TaskTree::listBoxItemDoubleClicked(int index, const juce::MouseEvent& event)
 {
     if (event.mods.isPopupMenu() || index < 0 || index >= getNumRows()) return;
-    beginInline(rows[static_cast<size_t>(index)]);
+    auto row = rows[static_cast<size_t>(index)];
+    const Columns columns(widths.name, widths.progress, widths.priority, widths.notes, widths.source);
+    if (!row.addChild && event.x >= columns.notes && event.x < columns.source) row.notes = true;
+    beginInline(row);
 }
 void TaskTree::returnKeyPressed(int index) { if (index >= 0 && index < getNumRows()) beginInline(rows[static_cast<size_t>(index)]); }
 void TaskTree::backgroundClicked(const juce::MouseEvent& event) { if (event.mods.isPopupMenu()) showBackgroundMenu(event.getScreenPosition()); }
-void TaskTree::mouseDown(const juce::MouseEvent& event) { if (event.mods.isPopupMenu()) showBackgroundMenu(event.getScreenPosition()); }
+void TaskTree::mouseDown(const juce::MouseEvent& event)
+{
+    if (event.y < 32 && event.mods.isLeftButtonDown())
+    {
+        resizingColumn = headerDividerAt(event.x);
+        if (resizingColumn >= 0)
+        {
+            resizeStartX = event.x;
+            const int values[] = {widths.name, widths.progress, widths.priority, widths.notes, widths.source};
+            resizeStartWidth = values[resizingColumn];
+            return;
+        }
+    }
+    if (event.mods.isPopupMenu()) showBackgroundMenu(event.getScreenPosition());
+}
+void TaskTree::mouseDrag(const juce::MouseEvent& event)
+{
+    if (resizingColumn < 0) return;
+    int* values[] = {&widths.name, &widths.progress, &widths.priority, &widths.notes, &widths.source};
+    const int minimum[] = {180, 110, 80, 160, 100};
+    const int maximum[] = {900, 400, 240, 900, 600};
+    *values[resizingColumn] = juce::jlimit(minimum[resizingColumn], maximum[resizingColumn],
+        resizeStartWidth + event.x - resizeStartX);
+    resizeColumns();
+    positionInline();
+}
+void TaskTree::mouseUp(const juce::MouseEvent&)
+{
+    if (resizingColumn >= 0)
+    {
+        resizingColumn = -1;
+        if (persistColumns) persistColumns(columnSettings());
+    }
+}
+void TaskTree::mouseMove(const juce::MouseEvent& event)
+{
+    setMouseCursor(event.y < 32 && headerDividerAt(event.x) >= 0
+        ? juce::MouseCursor::LeftRightResizeCursor : juce::MouseCursor::NormalCursor);
+}
+void TaskTree::mouseExit(const juce::MouseEvent&)
+{
+    if (resizingColumn < 0) setMouseCursor(juce::MouseCursor::NormalCursor);
+}
 void TaskTree::showTaskMenu(const arranger::TaskReference& ref, juce::Point<int> position) { showMenu({ref, {}, false, 0}, position); }
 void TaskTree::showBackgroundMenu(juce::Point<int> position)
 {
@@ -402,17 +471,36 @@ void TaskTree::beginInline(arranger::TaskTreeRow row)
 void TaskTree::positionInline()
 {
     if (!editing) return;
-    for (int i = 0; i < getNumRows(); ++i) if (rows[static_cast<size_t>(i)].key() == editing->key())
+    for (int i = 0; i < getNumRows(); ++i)
     {
+        const auto& row = rows[static_cast<size_t>(i)];
+        if (row.reference.taskId != editing->reference.taskId
+            || row.reference.ownerPageId != editing->reference.ownerPageId
+            || row.checkpointId != editing->checkpointId || row.addChild != editing->addChild) continue;
+        const Columns columns(widths.name, widths.progress, widths.priority, widths.notes, widths.source);
         auto bounds = list.getRowPosition(i, true).translated(list.getX(), list.getY());
-        const Columns columns(list.getVisibleContentWidth());
-        const int left = editing->notes ? columns.name + editing->depth * 14 + 20 : columns.name + editing->depth * 14;
-        bounds.removeFromLeft(left); bounds.removeFromRight(10);
-        if (editing->notes) bounds.setHeight(juce::jmin(88, juce::jmax(32, getHeight() - bounds.getY())));
+        if (editing->notes)
+        {
+            const auto width = widths.notes - 12;
+            const int chars = juce::jmax(12, width / 8);
+            int lines = 0;
+            for (const auto& line : juce::StringArray::fromLines(inlineEditor.getText()))
+                lines += juce::jmax(1, (line.length() + chars - 1) / chars);
+            bounds.setX(columns.notes + 5 - (list.getViewport() != nullptr ? list.getViewport()->getViewPositionX() : 0) + list.getX());
+            bounds.setWidth(width);
+            bounds.setHeight(juce::jlimit(38, 196, juce::jmax(1, lines) * 19 + 14));
+        }
+        else
+        {
+            const int nameX = columns.name + editing->depth * 14
+                - (list.getViewport() != nullptr ? list.getViewport()->getViewPositionX() : 0);
+            bounds.removeFromLeft(nameX);
+            bounds.setWidth(juce::jmax(90, columns.progress - columns.name - editing->depth * 14 - 10));
+        }
         inlineEditor.setBounds(bounds.reduced(1)); return;
     }
 }
-void TaskTree::listWasScrolled() { positionInline(); }
+void TaskTree::listWasScrolled() { positionInline(); repaint(); }
 void TaskTree::cancelInline(bool refocus)
 {
     editing.reset(); inlineEditor.setVisible(false); if (refocus) list.grabKeyboardFocus();
@@ -425,7 +513,13 @@ juce::Result TaskTree::flush()
     committing = true;
     const auto result = execute([&](arranger::WorkspaceCommands& cmd)
     {
-        if (row.addChild) { juce::String id; return cmd.createTaskCheckpoint(row.reference, value, id); }
+        if (row.addChild)
+        {
+            juce::String id;
+            if (arranger::WorkspaceQueries::generalTask(model, row.reference))
+                return cmd.createSubtask(row.reference.taskId, value, id);
+            return cmd.createTaskCheckpoint(row.reference, value, id);
+        }
         return cmd.updateTaskText(row.reference, row.checkpointId, row.notes ? arranger::TaskTextField::notes : arranger::TaskTextField::name, expectedText, value);
     });
     if (result.wasOk())
@@ -454,4 +548,158 @@ void TaskTree::statusMenu(arranger::TaskTreeRow row, juce::Point<int> position)
     {
         if (safe && choice >= 1 && choice <= 7) safe->apply([&](arranger::WorkspaceCommands& cmd) { return cmd.setReferenceStatus(row.reference,row.checkpointId,statuses[choice - 1]); });
     });
+}
+
+
+juce::String TaskTree::columnSettings() const
+{
+    return juce::String(widths.name) + "," + juce::String(widths.progress) + ","
+        + juce::String(widths.priority) + "," + juce::String(widths.notes) + ","
+        + juce::String(widths.source);
+}
+void TaskTree::resizeColumns()
+{
+    const Columns columns(widths.name, widths.progress, widths.priority, widths.notes, widths.source);
+    list.setMinimumContentWidth(columns.end);
+    list.repaint(); repaint();
+}
+int TaskTree::headerDividerAt(int x) const
+{
+    const Columns columns(widths.name, widths.progress, widths.priority, widths.notes, widths.source);
+    const auto scroll = list.getViewport() ? list.getViewport()->getViewPositionX() : 0;
+    const int boundaries[] = {columns.progress, columns.priority, columns.notes, columns.source, columns.end};
+    for (int i = 0; i < 5; ++i) if (std::abs(x + scroll - boundaries[i]) < 7) return i;
+    return -1;
+}
+juce::var TaskTree::getDragSourceDescription(const juce::SparseSet<int>& selected)
+{
+    if (selected.size() != 1 || editing) return {};
+    const auto index = selected.getRange(0).getStart();
+    if (index < 0 || index >= getNumRows()) return {};
+    const auto row = rows[static_cast<size_t>(index)];
+    if (row.addChild || row.notes || row.reference.songId.isNotEmpty()) return {};
+    const auto* parent = arranger::WorkspaceQueries::generalTask(model, row.reference);
+    if (!parent || arranger::WorkspaceQueries::taskArchived(model, parent->id)) return {};
+    if (row.checkpointId.isNotEmpty())
+        return "manager-checkpoint|" + parent->id + "|" + row.checkpointId;
+    return "manager-task|" + parent->id + "|" + parent->ownerPageId + "|"
+        + (parent->parentTaskId.isEmpty() ? juce::String("root") : parent->parentTaskId);
+}
+bool TaskTree::isInterestedInDragSource(const SourceDetails& source)
+{
+    return source.description.toString().startsWith("manager-task|")
+        || source.description.toString().startsWith("manager-checkpoint|");
+}
+std::optional<TaskTree::Target> TaskTree::targetAt(juce::Point<int> point, bool cpDrag) const
+{
+    const auto local = list.getLocalPoint(this, point);
+    if (!list.getLocalBounds().contains(local)) return {};
+    const int index = list.getRowContainingPosition(local.x, local.y);
+    if (index < 0 || index >= static_cast<int>(rows.size())) return {};
+    const auto row = rows[static_cast<size_t>(index)];
+    if (row.reference.songId.isNotEmpty()) return {};
+    const auto* task = arranger::WorkspaceQueries::generalTask(model, row.reference);
+    if (!task || arranger::WorkspaceQueries::taskArchived(model, task->id)) return {};
+    if (cpDrag)
+    {
+        if (row.checkpointId.isEmpty() || row.addChild) return {};
+    }
+    else if (row.checkpointId.isNotEmpty()) return {};
+    const auto position = list.getRowPosition(index, true);
+    const int y = local.y - position.getY();
+    Target result {row, false, y > position.getHeight() * 2 / 3, index};
+    if (!cpDrag && (row.addChild || (y >= position.getHeight() / 3
+        && y <= position.getHeight() * 2 / 3)))
+        result.inside = true;
+    return result;
+}
+void TaskTree::itemDragMove(const SourceDetails& source)
+{
+    const auto desc = source.description.toString();
+    const auto isCheckpoint = desc.startsWith("manager-checkpoint|");
+    const auto candidate = targetAt(source.localPosition, isCheckpoint);
+    const auto fields = juce::StringArray::fromTokens(desc, "|", "");
+    bool valid = candidate.has_value() && fields.size() >= 3;
+    if (valid && isCheckpoint)
+        valid = fields[1] == candidate->row.reference.taskId
+            && fields[2] != candidate->row.checkpointId;
+    else if (valid)
+    {
+        if (fields[1] == candidate->row.reference.taskId) valid = false;
+        auto* parent = model.findTask(candidate->row.reference.taskId);
+        std::set<juce::String> seen;
+        while (valid && parent && seen.insert(parent->id).second)
+        {
+            if (parent->id == fields[1]) valid = false;
+            parent = parent->parentTaskId.isNotEmpty() ? model.findTask(parent->parentTaskId) : nullptr;
+        }
+    }
+    if (valid) activeDrop = candidate;
+    else activeDrop.reset();
+    repaint();
+}
+void TaskTree::itemDragExit(const SourceDetails&) { activeDrop.reset(); repaint(); }
+void TaskTree::itemDropped(const SourceDetails& source)
+{
+    const auto target = targetAt(source.localPosition,
+        source.description.toString().startsWith("manager-checkpoint|"));
+    activeDrop.reset(); repaint();
+    if (!target) return;
+    commitDrop(source.description.toString(), *target);
+}
+void TaskTree::commitDrop(const juce::String& description, const Target& target)
+{
+    const auto args = juce::StringArray::fromTokens(description, "|", "");
+    if (args.size() < 3) return;
+    if (args[0] == "manager-checkpoint")
+    {
+        if (target.row.reference.taskId != args[1] || target.row.checkpointId.isEmpty()
+            || target.row.checkpointId == args[2]) return;
+        juce::String before = target.row.checkpointId;
+        if (target.after)
+            if (const auto* parent = model.findTask(args[1]))
+            {
+                before.clear(); bool found = false;
+                for (const auto& cp : parent->checkpoints)
+                {
+                    if (cp.id == target.row.checkpointId) { found = true; continue; }
+                    if (found && cp.id != args[2] && cp.archivedAt.isEmpty()) { before = cp.id; break; }
+                }
+            }
+        apply([&](arranger::WorkspaceCommands& cmd) { return cmd.reorderCheckpoint(args[1], args[2], before); });
+        return;
+    }
+    if (args.size() != 4 || args[0] != "manager-task") return;
+    const auto* moving = model.findTask(args[1]);
+    const auto* destination = model.findTask(target.row.reference.taskId);
+    if (!moving || !destination || moving->id == destination->id) return;
+    juce::String parent = target.inside ? destination->id : destination->parentTaskId;
+    juce::String before = target.inside ? juce::String() : (target.after ? juce::String() : destination->id);
+    if (target.after)
+    {
+        bool found = false;
+        for (const auto& sibling : model.tasks)
+        {
+            if (sibling.id == destination->id) { found = true; continue; }
+            if (found && sibling.id != moving->id && sibling.ownerPageId == destination->ownerPageId
+                && sibling.parentTaskId == parent && !arranger::WorkspaceQueries::taskArchived(model, sibling.id))
+            { before = sibling.id; break; }
+        }
+    }
+    const auto owner = destination->ownerPageId;
+    apply([&](arranger::WorkspaceCommands& cmd)
+    { return cmd.moveTask(args[1], args[2], args[3] == "root" ? juce::String() : args[3],
+        owner, parent, before); });
+}
+void TaskTree::paintOverChildren(juce::Graphics& g) { drawDropIndicator(g); }
+void TaskTree::drawDropIndicator(juce::Graphics& g)
+{
+    if (!activeDrop) return;
+    const auto target = *activeDrop;
+    auto bounds = list.getRowPosition(target.index, true).translated(list.getX(), list.getY());
+    if (bounds.getBottom() < 32 || bounds.getY() > getHeight()) return;
+    g.setColour(mr::colour(mr::tokens::focus));
+    if (target.inside) g.drawRoundedRectangle(bounds.reduced(3).toFloat(), 4.0f, 2.0f);
+    else g.fillRect(bounds.getX() + 8, target.after ? bounds.getBottom() - 2 : bounds.getY() - 2,
+        juce::jmin(bounds.getWidth() - 16, getWidth() - 20), 3);
 }

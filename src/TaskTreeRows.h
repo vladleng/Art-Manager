@@ -32,12 +32,10 @@ inline std::vector<TaskTreeRow> taskTreeRows(const WorkspaceModel& model,
         TaskTreeRow root {ref, {}, false, depth};
         if (!checkpointsOnly) rows.push_back(root);
         if (!checkpointsOnly && !expanded.contains(root.key())) return;
-        if (!checkpointsOnly) rows.push_back({ref, {}, true, depth + 1});
         const auto appendCheckpoint = [&](const juce::String& id)
         {
             TaskTreeRow child {ref, id, false, checkpointsOnly ? 0 : depth + 1};
             rows.push_back(child);
-            if (expanded.contains(child.key())) rows.push_back({ref, id, true, child.depth + 1});
         };
         if (general)
         {

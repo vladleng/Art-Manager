@@ -5,17 +5,23 @@
 #include "BlockEditor.h"
 #include "TaskDetails.h"
 
-class WorkspaceShell final : public juce::Component
+class WorkspaceShell final : public juce::Component, public juce::DragAndDropContainer,
+    public juce::DragAndDropTarget
 {
 public:
     using Execute = std::function<juce::Result(const arranger::WorkspaceAction&)>;
     WorkspaceShell(arranger::WorkspaceModel&, Execute,
-        juce::String selectedView, std::function<void(juce::String)> saveView);
+        juce::String selectedView, std::function<void(juce::String)> saveView,
+        juce::String savedColumns = {}, std::function<void(juce::String)> saveColumns = {});
     ~WorkspaceShell() override;
     void paint(juce::Graphics&) override;
     void resized() override;
     void refresh();
     bool flushEdits();
+    bool isInterestedInDragSource(const SourceDetails&) override;
+    void itemDragMove(const SourceDetails&) override;
+    void itemDragExit(const SourceDetails&) override;
+    void itemDropped(const SourceDetails&) override;
 
 private:
     struct NavRow { juce::String key, title; int depth = 0; };
@@ -59,6 +65,8 @@ private:
     std::function<void(juce::String)> persistView;
     juce::String viewKey;
     bool rebuilding = false;
+    juce::String dropPageId;
+    juce::String dropPageAt(juce::Point<int>) const;
     std::vector<NavRow> navigation;
     std::vector<arranger::TaskReference> taskReferences;
     std::vector<juce::String> archived;
