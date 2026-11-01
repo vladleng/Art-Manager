@@ -11,16 +11,21 @@ class WorkspaceCommands
 public:
     explicit WorkspaceCommands(WorkspaceModel& value) : model(value) {}
 
-    juce::Result createPage(const juce::String& parentId, juce::String title, juce::String& createdId)
+    juce::Result createPage(const juce::String& parentId, juce::String title, juce::String& createdId, bool notePage = false)
     {
         title = title.trim();
         if (title.isEmpty()) return juce::Result::fail("Page title cannot be empty.");
         const auto parent = validParent(parentId);
         if (parent.failed()) return parent;
         const auto id = juce::Uuid().toString();
-        model.pages.push_back({id, parentId, title, "page", {}, {}});
+        model.pages.push_back({id, parentId, title, notePage ? "note" : "page", {}, {}});
         createdId = id;
         return juce::Result::ok();
+    }
+
+    juce::Result createNotePage(const juce::String& parentId, juce::String title, juce::String& createdId)
+    {
+        return createPage(parentId, std::move(title), createdId, true);
     }
 
     juce::Result renamePage(const juce::String& id, juce::String title)
@@ -58,7 +63,7 @@ public:
     juce::Result restorePage(const juce::String& id)
     {
         auto* page = model.findPage(id);
-        if (page == nullptr || page->kind != "page" || page->archivedAt.isEmpty())
+        if (page == nullptr || (page->kind != "page" && page->kind != "note") || page->archivedAt.isEmpty())
             return juce::Result::fail("Archived page was not found.");
         if (WorkspaceQueries::isArchived(model, page->parentPageId))
             return juce::Result::fail("Restore the archived parent first.");
@@ -82,7 +87,8 @@ public:
 
     juce::Result createTask(const juce::String& ownerId, juce::String name, juce::String& createdId)
     {
-        if (editablePage(ownerId) == nullptr) return juce::Result::fail("Choose an active ordinary owner page.");
+        const auto* page = editablePage(ownerId);
+        if (page == nullptr || page->kind != "page") return juce::Result::fail("Choose an active task page, not a note.");
         name = name.trim();
         if (name.isEmpty()) return juce::Result::fail("Task name cannot be empty.");
         WorkspaceTask task;
@@ -122,7 +128,9 @@ public:
         if (!source) return juce::Result::fail("Active task was not found.");
         if (source->ownerPageId != expectedOwner || source->parentTaskId != expectedParent)
             return juce::Result::fail("Task position changed elsewhere.");
-        if (!editablePage(destinationOwner)) return juce::Result::fail("Destination page is missing or archived.");
+        const auto* destinationPage = editablePage(destinationOwner);
+        if (!destinationPage || destinationPage->kind != "page")
+            return juce::Result::fail("Destination task page is missing, archived or a note.");
 
         std::set<juce::String> subtree {taskId};
         bool expanded = true;
@@ -359,13 +367,14 @@ private:
     WorkspacePage* editablePage(const juce::String& id)
     {
         auto* page = model.findPage(id);
-        return page != nullptr && page->kind == "page" && !WorkspaceQueries::isArchived(model, id) ? page : nullptr;
+        return page != nullptr && (page->kind == "page" || page->kind == "note")
+            && !WorkspaceQueries::isArchived(model, id) ? page : nullptr;
     }
     juce::Result validParent(const juce::String& id) const
     {
         if (id.isEmpty()) return juce::Result::ok();
         const auto* page = model.findPage(id);
-        if (page == nullptr || page->kind != "page" || WorkspaceQueries::isArchived(model, id))
+        if (page == nullptr || (page->kind != "page" && page->kind != "note") || WorkspaceQueries::isArchived(model, id))
             return juce::Result::fail("Choose an active ordinary page as parent.");
         return juce::Result::ok();
     }
