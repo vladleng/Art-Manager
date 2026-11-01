@@ -15,6 +15,7 @@ public:
     juce::Result flush();
     void setTasks(std::vector<arranger::TaskReference>, bool checkpointsOnly = false);
     void paint(juce::Graphics&) override;
+    void paintOverChildren(juce::Graphics&) override;
     void resized() override;
     void mouseDown(const juce::MouseEvent&) override;
     void mouseDrag(const juce::MouseEvent&) override;
