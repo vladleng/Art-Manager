@@ -2,6 +2,7 @@
 #include <JuceHeader.h>
 #include "WorkspaceCommands.h"
 #include "TaskTreeRows.h"
+#include "WorkspaceTaskViews.h"
 #include "MRManagerStyle.h"
 
 class TaskTree final : public juce::Component, private juce::ListBoxModel, private juce::KeyListener, public juce::DragAndDropTarget
@@ -14,7 +15,7 @@ public:
         juce::String savedColumns = {}, std::function<void(juce::String)> persistColumns = {});
     juce::Result flush();
     void setTasks(std::vector<arranger::TaskReference>, bool checkpointsOnly = false);
-    void setManualOrder(bool enabled) { manualOrder = enabled; }
+    void setViewOptions(arranger::TaskViewOptions value);
     void paint(juce::Graphics&) override;
     void paintOverChildren(juce::Graphics&) override;
     void resized() override;
@@ -72,6 +73,8 @@ private:
     std::set<juce::String> expanded;
     bool checkpointsOnly = false;
     bool manualOrder = true;
+    std::set<juce::String> viewExpanded;
+    arranger::TaskViewOptions viewOptions;
     mr::Icons icons;
     juce::TextEditor inlineEditor;
     std::optional<arranger::TaskTreeRow> editing;
