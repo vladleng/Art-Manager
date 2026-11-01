@@ -1,4 +1,4 @@
-name: Windows App and Hub Build
+name: Windows App Build
 on:
   push:
     branches: [main]
@@ -23,8 +23,8 @@ jobs:
         run: |
           $env:ARRANGER_UI_PREVIEW = "1"
           ./build/TaskTreeUiTests_artefacts/Release/TaskTreeUiTests.exe
-      - name: Build desktop and Hub
-        run: cmake --build build --config Release --target ArrangerManagerDesktop ArrangerManagerHub_VST3 --parallel 2
+      - name: Build standalone desktop (Studio Pro plug-ins retired)
+        run: cmake --build build --config Release --target ArrangerManagerDesktop --parallel 2
       - name: Prepare package
         shell: pwsh
         run: |
