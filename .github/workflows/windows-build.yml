@@ -53,7 +53,13 @@ jobs:
           } else {
             Write-Host 'Optional preview was not found; Desktop package remains valid.'
           }
-          Get-ChildItem -Path . -Filter "template-*.png" -Recurse -File | ForEach-Object { Copy-Item -Force $_.FullName $packageDir }
+          # Resolve preview sources before writing to the package; never enumerate
+          # the destination while copying (Copy-Item cannot copy a file to itself).
+          foreach ($name in @('template-editor.png', 'template-create.png')) {
+            $source = Get-Item -LiteralPath $name -ErrorAction SilentlyContinue
+            if ($null -eq $source) { $source = Get-Item -LiteralPath "build/$name" -ErrorAction SilentlyContinue }
+            if ($null -ne $source) { Copy-Item -LiteralPath $source.FullName -Destination $packageDir -Force }
+          }
           Copy-Item -Force "docs/TEMPLATES-67.md" $packageDir
           Copy-Item -Force "docs/LEGACY-RETIREMENT-7.md" $packageDir
           Copy-Item -Force "docs/WORKSPACE-0.1e-DECISIONS.md" $packageDir
