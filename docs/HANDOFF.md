@@ -1,5 +1,7 @@
 # Arranger Manager — вход в разработку
 
+> **Актуальный handoff 2026-11-01.** В `main` принята **Arranger Manager 0.2.0**, #7 / [PR #53](https://github.com/vladleng/Art-Manager/pull/53) merged (`f8b57225`), [Windows #91](https://github.com/vladleng/Art-Manager/actions/runs/41280384029) SUCCESS, 8/8 CTest. Ранее приняты 0.1e–0.1h (PR #43–#46), #47 / PR #50. Studio Pro runtime Hub/ARA отключён, legacy song/task/checkpoint/Notes IDs и workspace JSON schema 2 сохранены. **Решение пользователя: сначала автономный Manager**, порядок: #54 → #55 + #37/0.1j → #38/#39/#40; MR Live #48 и Studio #49 отложены. Различия Live organizer/Manager TaskDomain, source ownership, read-only → optional write-back — в [TASK-CORE-INTEGRATION-PLAN](TASK-CORE-INTEGRATION-PLAN.md). Остальные разделы ниже — историческая справка (предыдущие «следующие шаги» устарели). Документация не меняет runtime.
+
 ## Решение 2026-10-28
 
 Связь со **Studio Pro упразднена**. Manager развивается в MR-экосистеме: **сначала MR Live, затем MR Studio**. Каноническое решение и проверенные sources/assets: [MR-ECOSYSTEM](MR-ECOSYSTEM.md). [ROADMAP](ROADMAP.md), [CONCEPT](CONCEPT.md), [архитектура](WORKSPACE-ARCHITECTURE.md).

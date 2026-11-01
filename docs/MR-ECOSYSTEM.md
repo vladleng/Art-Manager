@@ -1,5 +1,7 @@
 # Manager в экосистеме MR
 
+> **Актуализация 2026-11-01: сначала standalone Manager.** Приняты 0.1h/PR #46, MR UDS #47/PR #50 и #7/PR #53 (**0.2.0**, Windows #91 SUCCESS). Порядок: #54 TaskDomain → #55 UX и #37/0.1j → #38 Сегодня → #39 календарь → #40 Timeline → #48 MR Live → #49 MR Studio. Старые пункты и статусы PR ниже относятся к 2026-10-28. Архитектура Live organizer и owned tasks — [TASK-CORE-INTEGRATION-PLAN](TASK-CORE-INTEGRATION-PLAN.md). MR Live UI остаётся, Manager полностью автономен без Live.
+
 Решение пользователя: **2026-10-28**.
 
 **Кандидат #47:** read-only Manager assets закреплены в `assets/ui/mr-uds/` этой ветки и внедрены в косметический профиль Manager. Детали и фактические проверки: [MR-UDS-47](MR-UDS-47.md). Это не интеграция #48; пользовательская визуальная приёмка ещё не получена.
