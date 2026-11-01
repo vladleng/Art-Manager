@@ -16,7 +16,7 @@ Implementation branch [`feature/54-task-table-0.2.2`](https://github.com/vladlen
 
 - CMake/Windows workflow version and names set to 0.2.2, with TaskDomainTests, TaskTreeUiTests and full existing checks.
 - CI / actual input / DPI must be verified **after** opening PR. Until then: NOT TESTED.
-- Known pending: persisted undo for drag moves is not in this GUI slice. Don't mark Undo checkboxes complete before implementation. No two-way MR Live/Studio connectivity.
+- Undo/Redo: the Workspace menu now exposes a one-step guarded undo/redo of the latest workspace command (including task movement), persisted with CAS/backups and monotonic revision. Undo history is currently process-local and resets after app restart. Keyboard shortcut and broader multi-step history are not implemented. No two-way MR Live/Studio connectivity.
 
 ## Manual Windows check
 
