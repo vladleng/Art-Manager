@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(ArrangerManager VERSION 0.2.0 LANGUAGES C CXX)
+project(ArrangerManager VERSION 0.2.1 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -96,6 +96,16 @@ target_link_libraries(GeneralTaskTests PRIVATE juce::juce_core
     PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 add_test(NAME GeneralTaskTests COMMAND GeneralTaskTests)
 
+
+add_executable(TaskDomainTests tests/TaskDomainTests.cpp)
+target_include_directories(TaskDomainTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_compile_definitions(TaskDomainTests PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+if(MSVC)
+    target_compile_options(TaskDomainTests PRIVATE /utf-8)
+endif()
+target_link_libraries(TaskDomainTests PRIVATE juce::juce_core
+    PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+add_test(NAME TaskDomainTests COMMAND TaskDomainTests)
 
 juce_add_console_app(TaskTreeUiTests PRODUCT_NAME "TaskTreeUiTests")
 juce_generate_juce_header(TaskTreeUiTests)
