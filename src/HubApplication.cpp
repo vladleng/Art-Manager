@@ -46,6 +46,8 @@ private:
         menu.addItem(1, "Storage information");
         menu.addSeparator();
         menu.addItem(3, "Restore previous workspace backup...");
+        menu.addSeparator();
+        menu.addItem(4, "Undo / Redo last workspace change");
         return menu;
     }
     void menuItemSelected(int item, int) override { workspaceAction(item); }
@@ -124,6 +126,15 @@ private:
                             + "\nFile: " + store->getFile().getFullPathName()
                             + "\nBackup: " + store->backupFile().getFullPathName()
                             + "\nLegacy catalog backup: " + store->legacyFile().getFullPathName(), window.get());
+                }
+                else if (action == 4)
+                {
+                    if (!window || !window->flushEdits()) return;
+                    const auto result = controller->undoLast();
+                    if (result.wasOk()) window->refreshWorkspace();
+                    else juce::NativeMessageBox::showMessageBoxAsync(
+                        juce::MessageBoxIconType::WarningIcon,
+                        "Undo not available", result.getErrorMessage(), window.get());
                 }
                 else if (action == 3)
                 {
