@@ -289,26 +289,28 @@ void WorkspaceShell::report(const juce::Result& result)
         text("Не удалось сохранить изменение"), result.getErrorMessage(), this);
 }
 
-void WorkspaceShell::promptPage(const juce::String& parentId, const juce::String& renameId)
+void WorkspaceShell::promptPage(const juce::String& parentId, const juce::String& renameId, bool asNote)
 {
     if (!flushEdits()) return;
     const auto* existing = model.findPage(renameId);
     const bool renaming = existing != nullptr;
     const auto currentTitle = renaming ? existing->title : juce::String();
-    auto* dialog = new juce::AlertWindow(renaming ? text("Переименовать страницу") : text("Новая страница"),
+    auto* dialog = new juce::AlertWindow(renaming ? text("Переименовать страницу")
+        : asNote ? text("Новая заметка") : text("Новая страница"),
         text("Название страницы"), juce::MessageBoxIconType::NoIcon, this);
     dialog->addTextEditor("title", currentTitle, text("Название"));
     dialog->addButton(text("Сохранить"), 1, juce::KeyPress(juce::KeyPress::returnKey));
     dialog->addButton(text("Отмена"), 0, juce::KeyPress(juce::KeyPress::escapeKey));
     juce::Component::SafePointer<WorkspaceShell> safe(this);
-    dialog->enterModalState(true, juce::ModalCallbackFunction::create([safe, dialog, parentId, renameId](int result)
+    dialog->enterModalState(true, juce::ModalCallbackFunction::create([safe, dialog, parentId, renameId, asNote](int result)
     {
         if (safe == nullptr || result != 1) return;
         const auto title = dialog->getTextEditorContents("title");
         juce::String id = renameId;
         const bool changed = safe->execute([&](arranger::WorkspaceCommands& commands)
         {
-            return renameId.isNotEmpty() ? commands.renamePage(renameId, title) : commands.createPage(parentId, title, id);
+            return renameId.isNotEmpty() ? commands.renamePage(renameId, title)
+                : asNote ? commands.createNotePage(parentId, title, id) : commands.createPage(parentId, title, id);
         });
         if (changed) safe->select("page:" + id);
     }), true);
@@ -318,8 +320,12 @@ void WorkspaceShell::showPageMenu(const juce::String& id, juce::Point<int> posit
 {
     juce::PopupMenu menu; menu.setLookAndFeel(&getLookAndFeel());
     menu.addItem(1, text("Новая вложенная страница"));
+    menu.addItem(5, text("Новая вложенная заметка"));
     menu.addItem(2, text("Переименовать"));
     menu.addItem(3, text("Переместить"));
+    if (const auto* page = model.findPage(id))
+        if (page->kind == "page" && !page->blocks.empty())
+            menu.addItem(6, text("Открыть прежние материалы"));
     menu.addSeparator();
     menu.addItem(4, text("В архив"));
     juce::Component::SafePointer<WorkspaceShell> safe(this);
@@ -328,9 +334,11 @@ void WorkspaceShell::showPageMenu(const juce::String& id, juce::Point<int> posit
         {
             if (safe == nullptr) return;
             if (item == 1) safe->promptPage(id);
+            else if (item == 5) safe->promptPage(id, {}, true);
             else if (item == 2) safe->promptPage({}, id);
             else if (item == 3) safe->showMoveMenu(id, position);
             else if (item == 4) safe->archivePage(id);
+            else if (item == 6) safe->select("pageBlocks:" + id);
         });
 }
 
@@ -390,6 +398,8 @@ void WorkspaceShell::promptTask()
     juce::StringArray labels;
     for (const auto& row : arranger::WorkspaceQueries::activePages(model))
     {
+        const auto* page = model.findPage(row.id);
+        if (!page || page->kind != "page") continue;
         owners.push_back(row.id); labels.add(arranger::WorkspaceQueries::breadcrumb(model, row.id));
     }
     if (owners.empty()) { delete dialog; report(juce::Result::fail(text("Сначала создайте обычную страницу."))); return; }
