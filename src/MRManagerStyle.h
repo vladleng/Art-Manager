@@ -22,9 +22,11 @@ inline juce::Colour colour(std::uint32_t value)
         case tokens::section:  return juce::Colour(0xff37383a);
         case tokens::outline:  return juce::Colour(0xff4a4a4d);
         case tokens::bright:   return juce::Colour(0xffe2e2e3);
+        // MR UDS currently assigns meta and focus the same source value
+        // (0xff91bbee). One case therefore covers both; duplicate cases fail
+        // to compile on MSVC (C2196).
         case tokens::meta:     return juce::Colour(0xffb9b9bc);
         case tokens::muted:    return juce::Colour(0xff8e8e92);
-        case tokens::focus:    return juce::Colour(0xffc7c7cb);
         default:               return juce::Colour(static_cast<juce::uint32>(value));
     }
 }
