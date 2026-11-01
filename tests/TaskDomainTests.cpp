@@ -1,5 +1,6 @@
 #include "WorkspaceController.h"
 #include "SongNoteKeys.h"
+#include "TaskTreeRows.h"
 #include <iostream>
 
 static bool check(bool ok, const char* message)
@@ -95,6 +96,18 @@ int main()
         "Reparent copied or corrupted the original task");
     REQUIRE(WorkspaceQueries::allTasks(model).size() == 1,
         "Child of a moved root appeared as a duplicate top-level task");
+
+    std::set<juce::String> expanded {"task:" + one, "task:" + child};
+    const auto tree = taskTreeRows(model, WorkspaceQueries::allTasks(model), expanded);
+    bool foundChild = false, foundGrandchild = false;
+    for (const auto& row : tree)
+    {
+        if (!row.notes && !row.addChild && row.reference.taskId == child && row.depth == 1)
+            foundChild = true;
+        if (!row.notes && !row.addChild && row.reference.taskId == grandchild && row.depth == 2)
+            foundGrandchild = true;
+    }
+    REQUIRE(foundChild && foundGrandchild, "Nested task tree projection lost the parent chain");
 
     const auto beforeFailed = model.toJson();
     REQUIRE(controller.execute([&](WorkspaceCommands& cmd) {
