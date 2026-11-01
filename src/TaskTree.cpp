@@ -167,15 +167,11 @@ void TaskTree::paintListBoxItem(int index, juce::Graphics& g, int width, int hei
     if (row.checkpointId.isEmpty()) icons.draw("manager/actions/organizer", g, {static_cast<float>(nameX), static_cast<float>(height / 2 - 6), 12, 12});
     else
     {
-        const float iconX = static_cast<float>(nameX + 3), iconY = static_cast<float>(height / 2 - 5);
-        g.setColour(status == arranger::Status::done ? mr::colour(mr::tokens::progressFill) : mr::colour(mr::tokens::muted));
-        g.drawRoundedRectangle(iconX, iconY, 10, 10, 2, 1.0f);
-        if (status == arranger::Status::done)
-        {
-            juce::Path tick; tick.startNewSubPath(iconX + 2, iconY + 5);
-            tick.lineTo(iconX + 4, iconY + 7); tick.lineTo(iconX + 8, iconY + 2);
-            g.strokePath(tick, juce::PathStrokeType(1.2f));
-        }
+        // A checkpoint already has a full status pill. A second checkbox
+        // ambiguously duplicates its DONE/TODO state. Use a neutral leaf
+        // marker and keep status changes exclusively in the status menu.
+        g.setColour(mr::colour(mr::tokens::muted));
+        g.fillEllipse(static_cast<float>(nameX + 7), static_cast<float>(height / 2 - 2), 4.0f, 4.0f);
     }
     g.setColour(mr::colour(mr::tokens::bright));
     g.drawText(name, nameX + 20, 0, juce::jmax(0, columns.progress - nameX - 28), height, juce::Justification::centredLeft, true);
@@ -240,13 +236,7 @@ void TaskTree::listBoxItemClicked(int index, const juce::MouseEvent& event)
     if (event.x >= nameX && event.x < nameX + 18)
     {
         if (row.checkpointId.isEmpty()) { if (open) open(row.reference); }
-        else
-        {
-            auto value = arranger::Status::todo;
-            if (const auto* cp = checkpoint(model,row)) value = cp->status;
-            else if (const auto* task = arranger::WorkspaceQueries::task(model,row.reference)) for (const auto& cp : task->checkpoints) if (cp.id == row.checkpointId) value = cp.status;
-            apply([&](arranger::WorkspaceCommands& cmd) { return cmd.setReferenceStatus(row.reference,row.checkpointId,value == arranger::Status::done ? arranger::Status::todo : arranger::Status::done); });
-        }
+        // Checkpoint icon is display-only. Click the status pill to change it.
     }
 }
 void TaskTree::listBoxItemDoubleClicked(int index, const juce::MouseEvent& event)
