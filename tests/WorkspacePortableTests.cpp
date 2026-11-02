@@ -138,14 +138,19 @@ int main()
         && persistent.findPage(createdNote) == nullptr);
     CHECK(controller.undoLast().wasOk()
         && persistent.findPage(createdNote) != nullptr);
-    // Block a backup write; no live workspace mutation or partial legacy move.
+    CHECK(controller.undoLast().wasOk()
+        && persistent.findPage(createdNote) == nullptr
+        && persistent.findPage(legacyPage)->blocks.size() == 2);
+    // Block a backup write; the domain command succeeds on a private
+    // candidate, but the failed storage transaction changes neither state.
     store.backupFile().deleteFile();
     store.backupFile().createDirectory();
     const auto liveFileBeforeFailedMove = file.loadFileAsString();
     CHECK(controller.execute([&](WorkspaceCommands& c)
         { juce::String id; return c.moveLegacyBlocksToNote(legacyPage, id); }).failed());
     CHECK(file.loadFileAsString() == liveFileBeforeFailedMove);
-    CHECK(persistent.findPage(createdNote) != nullptr);
+    CHECK(persistent.findPage(createdNote) == nullptr
+        && persistent.findPage(legacyPage)->blocks.size() == 2);
     std::cout << "Portable export/import, conflict handling, IDs, archive, legacy blocks, rollback PASS\n";
     return 0;
 }
