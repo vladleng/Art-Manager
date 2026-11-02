@@ -263,6 +263,7 @@ void TaskTree::listBoxItemClicked(int index, const juce::MouseEvent& event)
     const int nameX = columns.name + row.depth * 14;
     if (event.x >= nameX && event.x < columns.progress)
     {
+        if (event.getNumberOfClicks() > 1) return; // First click already opened the editor.
         if (arranger::WorkspaceQueries::generalTask(model, row.reference))
         {
             // A normal left click on the task name opens a small anchored editor,
@@ -287,11 +288,11 @@ void TaskTree::listBoxItemDoubleClicked(int index, const juce::MouseEvent& event
         beginInline(row);
         return;
     }
-    // A double click follows the first click's properties callout; don't open
-    // an overlapping inline name editor underneath it.
-    if (arranger::WorkspaceQueries::generalTask(model, row.reference)
-        && event.x >= columns.name && event.x < columns.progress) return;
-    beginInline(row);
+    // Only the legacy name retains double-click inline editing. Task names
+    // already open a quick properties callout with the first left click.
+    if (row.addChild || (event.x >= columns.name && event.x < columns.progress
+        && !arranger::WorkspaceQueries::generalTask(model, row.reference)))
+        beginInline(row);
 }
 void TaskTree::returnKeyPressed(int index) { if (index >= 0 && index < getNumRows()) beginInline(rows[static_cast<size_t>(index)]); }
 void TaskTree::backgroundClicked(const juce::MouseEvent& event) { if (event.mods.isPopupMenu()) showBackgroundMenu(event.getScreenPosition()); }
