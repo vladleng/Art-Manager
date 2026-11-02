@@ -367,6 +367,7 @@ void TaskTree::showMenu(arranger::TaskTreeRow row, juce::Point<int> position)
     if (task)
     {
         if (saveAsTemplate && row.checkpointId.isEmpty()) menu.addItem(6, tr("Сохранить как шаблон…"));
+        if (exportTask && row.checkpointId.isEmpty()) menu.addItem(7, tr("Экспортировать задачу с подзадачами…"));
         juce::PopupMenu statusMenu;
         const auto currentStatus = cp ? cp->status : task->properties.status;
         for (int i = 0; i < 7; ++i) statusMenu.addItem(20 + i, arranger::label(statuses[i]), true, statuses[i] == currentStatus);
@@ -396,6 +397,7 @@ void TaskTree::showMenu(arranger::TaskTreeRow row, juce::Point<int> position)
             if (item == 3) { auto add = row; add.checkpointId.clear(); add.notes = false; add.addChild = true; safe->expanded.insert("task:" + ref.taskId); safe->rebuild(); safe->beginInline(add); return; }
             if (item == 5) { if (safe->create) safe->create(); return; }
             if (item == 6) { if (safe->saveAsTemplate) safe->saveAsTemplate(ref); return; }
+            if (item == 7) { if (safe->exportTask) safe->exportTask(ref); return; }
             if (item == 4 && row.checkpointId.isEmpty()) { if (safe->archive) safe->archive(ref.taskId); return; }
             // Resolve fresh values after pending editor fields have been flushed. No model pointers survive a menu.
             if (safe->before && !safe->before()) return;
