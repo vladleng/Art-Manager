@@ -126,6 +126,21 @@ int main()
     WorkspaceStore store(file);
     CHECK(store.load({}, {}, persistent).wasOk());
     WorkspaceController controller(persistent, store);
+    const auto beforeImport = file.loadFileAsString();
+    CHECK(controller.execute([&](WorkspaceCommands& c)
+        { return c.importPortable(imported, PortableImportPolicy::preserveIds); }).wasOk());
+    CHECK(persistent.findTask(first) != nullptr
+        && persistent.findTask(first)->properties.notes == source.findTask(first)->properties.notes
+        && store.backupFile().loadFileAsString() == beforeImport);
+    WorkspaceModel importedAfterRestart;
+    WorkspaceStore readImported(file);
+    CHECK(readImported.load({}, {}, importedAfterRestart).wasOk()
+        && importedAfterRestart.findTask(child)->parentTaskId == first);
+    const auto acceptedImport = file.loadFileAsString();
+    CHECK(controller.execute([&](WorkspaceCommands& c)
+        { return c.importPortable(imported, PortableImportPolicy::preserveIds); }).failed());
+    CHECK(file.loadFileAsString() == acceptedImport);
+    CHECK(controller.undoLast().wasOk() && persistent.findTask(first) == nullptr);
     juce::String legacyPage;
     CHECK(controller.execute([&](WorkspaceCommands& c)
         { return c.createPage({}, "Original page", legacyPage); }).wasOk());
