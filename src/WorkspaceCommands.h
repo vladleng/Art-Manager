@@ -1,5 +1,6 @@
 #pragma once
 #include "WorkspaceQueries.h"
+#include "WorkspaceTemplates.h"
 #include <algorithm>
 #include <iterator>
 
@@ -10,6 +11,41 @@ class WorkspaceCommands
 {
 public:
     explicit WorkspaceCommands(WorkspaceModel& value) : model(value) {}
+
+    juce::Result createFromTemplate(const WorkspaceTemplate& definition, const juce::String& ownerOrParent,
+        juce::String name, juce::String& createdId)
+    {
+        auto result = definition.validate(); if (result.failed()) return result;
+        name = name.trim();
+        if (name.isEmpty()) return juce::Result::fail("Name cannot be empty.");
+        auto candidate = model;
+        WorkspaceCommands commands(candidate);
+        auto fresh = definition; renewTemplateIds(fresh);
+        juce::String owner = ownerOrParent, created;
+        if (definition.project)
+        {
+            result = commands.createPage(ownerOrParent, name, owner);
+            if (result.failed()) return result;
+            candidate.findPage(owner)->blocks = fresh.content.pages.front().blocks;
+            created = owner;
+        }
+        else
+        {
+            const auto* page = candidate.findPage(owner);
+            if (!page || page->kind != "page" || WorkspaceQueries::isArchived(candidate, owner))
+                return juce::Result::fail("Choose an active task page.");
+        }
+        for (auto task : fresh.content.tasks)
+        {
+            task.ownerPageId = owner;
+            if (!definition.project && task.parentTaskId.isEmpty())
+            { task.properties.name = name; created = task.id; }
+            candidate.tasks.push_back(std::move(task));
+        }
+        result = candidate.validate();
+        if (result.wasOk()) { model = std::move(candidate); createdId = created; }
+        return result;
+    }
 
     juce::Result createPage(const juce::String& parentId, juce::String title, juce::String& createdId, bool notePage = false)
     {

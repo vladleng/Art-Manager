@@ -1,5 +1,6 @@
 #include "TaskTree.h"
 #include "SongNoteKeys.h"
+#include "TaskQuickProperties.h"
 namespace
 {
 juce::String tr(const char* value) { return juce::String::fromUTF8(value); }
@@ -248,7 +249,9 @@ void TaskTree::listBoxItemClicked(int index, const juce::MouseEvent& event)
             const auto expected = task->properties; juce::PopupMenu priorities; priorities.setLookAndFeel(&getLookAndFeel());
             for (int i = 1; i <= 4; ++i) priorities.addItem(i,"P" + juce::String(i),true,expected.priority == i);
             juce::Component::SafePointer<TaskTree> safe(this);
-            priorities.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this),[safe,row,expected](int value)
+            priorities.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this)
+                .withTargetScreenArea({event.getScreenPosition().x, event.getScreenPosition().y, 1, 1}),
+                [safe,row,expected](int value)
             {
                 if (!safe || value < 1 || value > 4) return;
                 auto next = expected; next.priority = value;
@@ -258,10 +261,20 @@ void TaskTree::listBoxItemClicked(int index, const juce::MouseEvent& event)
         return;
     }
     const int nameX = columns.name + row.depth * 14;
-    if (event.x >= nameX && event.x < nameX + 18)
+    if (event.x >= nameX && event.x < columns.progress)
     {
-        if (row.checkpointId.isEmpty()) { if (open) open(row.reference); }
-        // Checkpoint icon is display-only. Click the status pill to change it.
+        if (event.getNumberOfClicks() > 1) return; // First click already opened the editor.
+        if (arranger::WorkspaceQueries::generalTask(model, row.reference))
+        {
+            // A normal left click on the task name opens a small anchored editor,
+            // never the redundant full-page TaskDetails view.
+            if (row.checkpointId.isEmpty())
+                editTask(row.reference, event.getScreenPosition());
+            else if (event.x >= nameX + 18) // The checkpoint leaf glyph remains inert.
+                editCheckpoint(row.reference, row.checkpointId, event.getScreenPosition());
+        }
+        else if (row.checkpointId.isEmpty() && event.x < nameX + 18 && open)
+            open(row.reference); // Legacy archive remains accessible without Studio Pro.
     }
 }
 void TaskTree::listBoxItemDoubleClicked(int index, const juce::MouseEvent& event)
@@ -269,8 +282,17 @@ void TaskTree::listBoxItemDoubleClicked(int index, const juce::MouseEvent& event
     if (event.mods.isPopupMenu() || index < 0 || index >= getNumRows()) return;
     auto row = rows[static_cast<size_t>(index)];
     const Columns columns(widths.name, widths.progress, widths.priority, widths.notes, widths.source);
-    if (!row.addChild && event.x >= columns.notes && event.x < columns.source) row.notes = true;
-    beginInline(row);
+    if (!row.addChild && event.x >= columns.notes && event.x < columns.source)
+    {
+        row.notes = true;
+        beginInline(row);
+        return;
+    }
+    // Only the legacy name retains double-click inline editing. Task names
+    // already open a quick properties callout with the first left click.
+    if (row.addChild || (event.x >= columns.name && event.x < columns.progress
+        && !arranger::WorkspaceQueries::generalTask(model, row.reference)))
+        beginInline(row);
 }
 void TaskTree::returnKeyPressed(int index) { if (index >= 0 && index < getNumRows()) beginInline(rows[static_cast<size_t>(index)]); }
 void TaskTree::backgroundClicked(const juce::MouseEvent& event) { if (event.mods.isPopupMenu()) showBackgroundMenu(event.getScreenPosition()); }
@@ -341,10 +363,10 @@ void TaskTree::showMenu(arranger::TaskTreeRow row, juce::Point<int> position)
     const auto* task = arranger::WorkspaceQueries::generalTask(model, row.reference);
     const auto* cp = checkpoint(model, row);
     juce::PopupMenu menu; menu.setLookAndFeel(&getLookAndFeel());
-    if (open) menu.addItem(1, task ? tr("Открыть задачу") : tr("Показать сохранённую песню"));
+    if (!task && open) menu.addItem(1, tr("Показать сохранённую песню"));
     if (task)
     {
-        menu.addItem(2, cp ? tr("Изменить подзадачу / заметки") : tr("Переименовать / свойства / Notes"));
+        if (saveAsTemplate && row.checkpointId.isEmpty()) menu.addItem(6, tr("Сохранить как шаблон…"));
         juce::PopupMenu statusMenu;
         const auto currentStatus = cp ? cp->status : task->properties.status;
         for (int i = 0; i < 7; ++i) statusMenu.addItem(20 + i, arranger::label(statuses[i]), true, statuses[i] == currentStatus);
@@ -371,9 +393,9 @@ void TaskTree::showMenu(arranger::TaskTreeRow row, juce::Point<int> position)
             if (safe == nullptr || item == 0) return;
             const auto ref = row.reference;
             if (item == 1) { if (safe->open) safe->open(ref); return; }
-            if (item == 2) { if (row.checkpointId.isEmpty()) safe->editTask(ref); else safe->editCheckpoint(ref, row.checkpointId); return; }
             if (item == 3) { auto add = row; add.checkpointId.clear(); add.notes = false; add.addChild = true; safe->expanded.insert("task:" + ref.taskId); safe->rebuild(); safe->beginInline(add); return; }
             if (item == 5) { if (safe->create) safe->create(); return; }
+            if (item == 6) { if (safe->saveAsTemplate) safe->saveAsTemplate(ref); return; }
             if (item == 4 && row.checkpointId.isEmpty()) { if (safe->archive) safe->archive(ref.taskId); return; }
             // Resolve fresh values after pending editor fields have been flushed. No model pointers survive a menu.
             if (safe->before && !safe->before()) return;
@@ -402,66 +424,58 @@ void TaskTree::showMenu(arranger::TaskTreeRow row, juce::Point<int> position)
             }
         });
 }
-void TaskTree::editTask(arranger::TaskReference ref)
+void TaskTree::editTask(arranger::TaskReference ref, juce::Point<int> position)
 {
-    if (before && !before()) return;
-    const auto* task = arranger::WorkspaceQueries::generalTask(model, ref); if (!task) return;
+    if (flush().failed() || (before && !before())) return;
+    const auto* task = arranger::WorkspaceQueries::generalTask(model, ref);
+    if (!task) return;
     const auto expected = task->properties;
-    auto* dialog = new juce::AlertWindow(tr("Свойства задачи"), {}, juce::MessageBoxIconType::NoIcon, this);
-    dialog->addTextEditor("name", expected.name, tr("Название"));
-    auto notesEditor = std::make_shared<juce::TextEditor>("Notes");
-    notesEditor->setMultiLine(true); notesEditor->setReturnKeyStartsNewLine(true);
-    notesEditor->setText(expected.notes, false); notesEditor->setSize(440, 100);
-    dialog->addCustomComponent(notesEditor.get());
-    dialog->addComboBox("status", {"POOL", "TODO", "WIP", "DRAFT", "WAIT", "DONE", "BLOCKED"}, tr("Статус"));
-    dialog->getComboBoxComponent("status")->setSelectedId(statusId(expected.status));
-    dialog->addComboBox("priority", {"P1", "P2", "P3", "P4"}, tr("Приоритет"));
-    dialog->getComboBoxComponent("priority")->setSelectedId(expected.priority);
-    dialog->addButton(tr("Сохранить"), 1); dialog->addButton(tr("Отмена"), 0, juce::KeyPress(juce::KeyPress::escapeKey));
     juce::Component::SafePointer<TaskTree> safe(this);
-    dialog->enterModalState(true, juce::ModalCallbackFunction::create([safe, dialog, ref, expected, notesEditor](int choice)
-    {
-        if (safe == nullptr || choice != 1) return;
-        auto value = expected; value.name = dialog->getTextEditorContents("name"); value.notes = notesEditor->getText();
-        value.status = statuses[juce::jlimit(1, 7, dialog->getComboBoxComponent("status")->getSelectedId()) - 1];
-        value.priority = dialog->getComboBoxComponent("priority")->getSelectedId();
-        safe->apply([&](arranger::WorkspaceCommands& cmd) { return cmd.updateTask(ref.taskId, expected, value); });
-    }), true);
-}
-void TaskTree::editCheckpoint(arranger::TaskReference ref, juce::String cpId)
-{
-    if (before && !before()) return;
-    const auto* task = arranger::WorkspaceQueries::generalTask(model, ref); if (!task) return;
-    const bool adding = cpId.isEmpty();
-    const auto* cp = checkpoint(model, {ref, cpId, false, 0}); if (!adding && !cp) return;
-    const auto expected = adding ? arranger::TaskCheckpoint{} : *cp;
-    auto* dialog = new juce::AlertWindow(adding ? tr("Новый чек-поинт") : tr("Изменить чек-поинт"), {}, juce::MessageBoxIconType::NoIcon, this);
-    dialog->addTextEditor("name", expected.name, tr("Название"));
-    std::shared_ptr<juce::TextEditor> notesEditor;
-    if (!adding)
-    {
-        notesEditor = std::make_shared<juce::TextEditor>("Notes");
-        notesEditor->setMultiLine(true); notesEditor->setReturnKeyStartsNewLine(true);
-        notesEditor->setText(expected.notes, false); notesEditor->setSize(440, 100);
-        dialog->addCustomComponent(notesEditor.get());
-        dialog->addComboBox("status", {"POOL", "TODO", "WIP", "DRAFT", "WAIT", "DONE", "BLOCKED"}, tr("Статус"));
-        dialog->getComboBoxComponent("status")->setSelectedId(statusId(expected.status));
-    }
-    dialog->addButton(tr("Сохранить"), 1); dialog->addButton(tr("Отмена"), 0, juce::KeyPress(juce::KeyPress::escapeKey));
-    juce::Component::SafePointer<TaskTree> safe(this);
-    dialog->enterModalState(true, juce::ModalCallbackFunction::create([safe, dialog, ref, expected, adding, notesEditor](int choice)
-    {
-        if (safe == nullptr || choice != 1) return;
-        auto value = expected; value.name = dialog->getTextEditorContents("name");
-        if (!adding)
+    auto panel = std::make_unique<TaskQuickProperties>(false, expected.name, expected.notes,
+        statusId(expected.status), expected.priority,
+        [safe, ref, expected](juce::String name, juce::String notes, int status, int priority) -> juce::Result
         {
-            value.notes = notesEditor->getText();
-            value.status = statuses[juce::jlimit(1, 7, dialog->getComboBoxComponent("status")->getSelectedId()) - 1];
-        }
-        juce::String created;
-        safe->apply([&](arranger::WorkspaceCommands& cmd)
-        { return adding ? cmd.createCheckpoint(ref.taskId, value.name, created) : cmd.updateCheckpoint(ref.taskId, expected, value); });
-    }), true);
+            if (!safe) return juce::Result::fail("Task list closed.");
+            if (safe->flush().failed() || (safe->before && !safe->before()))
+                return juce::Result::fail("Save pending edits first.");
+            auto next = expected;
+            next.name = name; next.notes = notes;
+            next.status = statuses[juce::jlimit(1, 7, status) - 1];
+            next.priority = juce::jlimit(1, 4, priority);
+            const auto result = safe->execute([&](arranger::WorkspaceCommands& cmd)
+                { return cmd.updateTask(ref.taskId, expected, next); });
+            if (result.wasOk()) { safe->rebuild(); if (safe->changed) safe->changed(); }
+            return result;
+        });
+    auto& callout = juce::CallOutBox::launchAsynchronously(std::move(panel),
+        {position.x, position.y, 1, 1}, nullptr);
+    callout.setDismissalMouseClicksAreAlwaysConsumed(true);
+}
+void TaskTree::editCheckpoint(arranger::TaskReference ref, juce::String cpId, juce::Point<int> position)
+{
+    if (flush().failed() || (before && !before())) return;
+    const auto* found = checkpoint(model, {ref, cpId, false, 0});
+    if (!found) return;
+    const auto expected = *found;
+    juce::Component::SafePointer<TaskTree> safe(this);
+    auto panel = std::make_unique<TaskQuickProperties>(true, expected.name, expected.notes,
+        statusId(expected.status), 3,
+        [safe, ref, cpId, expected](juce::String name, juce::String notes, int status, int) -> juce::Result
+        {
+            if (!safe) return juce::Result::fail("Task list closed.");
+            if (safe->flush().failed() || (safe->before && !safe->before()))
+                return juce::Result::fail("Save pending edits first.");
+            auto next = expected;
+            next.name = name; next.notes = notes;
+            next.status = statuses[juce::jlimit(1, 7, status) - 1];
+            const auto result = safe->execute([&](arranger::WorkspaceCommands& cmd)
+                { return cmd.updateCheckpoint(ref.taskId, expected, next); });
+            if (result.wasOk()) { safe->rebuild(); if (safe->changed) safe->changed(); }
+            return result;
+        });
+    auto& callout = juce::CallOutBox::launchAsynchronously(std::move(panel),
+        {position.x, position.y, 1, 1}, nullptr);
+    callout.setDismissalMouseClicksAreAlwaysConsumed(true);
 }
 
 void TaskTree::beginInline(arranger::TaskTreeRow row)

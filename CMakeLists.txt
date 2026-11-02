@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
-project(ArrangerManager VERSION 0.2.5 LANGUAGES C CXX)
+project(ArrangerManager VERSION 0.2.6 LANGUAGES C CXX)
+set(ARRANGER_MANAGER_VERSION_SUFFIX "-Upd1")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -22,8 +23,8 @@ target_sources(ArrangerManagerDesktop PRIVATE
     src/WorkspaceShell.h src/WorkspaceShell.cpp
     src/BlockEditorSession.h src/BlockEditor.h src/BlockEditor.cpp
     src/TaskDetails.h src/TaskDetails.cpp
-    src/TaskTreeRows.h src/TaskTree.h src/TaskTree.cpp)
-target_compile_definitions(ArrangerManagerDesktop PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 ARRANGER_MANAGER_VERSION=\"${PROJECT_VERSION}\")
+    src/TaskTreeRows.h src/TaskTree.h src/TaskTree.cpp src/TaskQuickProperties.h)
+target_compile_definitions(ArrangerManagerDesktop PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 ARRANGER_MANAGER_VERSION=\"${PROJECT_VERSION}${ARRANGER_MANAGER_VERSION_SUFFIX}\")
 if(MSVC)
     target_compile_options(ArrangerManagerDesktop PRIVATE /utf-8)
 endif()
@@ -128,3 +129,13 @@ endif()
 target_link_libraries(TaskTreeUiTests PRIVATE juce::juce_gui_extra
     PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 add_test(NAME TaskTreeUiTests COMMAND TaskTreeUiTests)
+
+add_executable(WorkspaceTemplateTests tests/WorkspaceTemplateTests.cpp)
+target_include_directories(WorkspaceTemplateTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_compile_definitions(WorkspaceTemplateTests PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+if(MSVC)
+    target_compile_options(WorkspaceTemplateTests PRIVATE /utf-8)
+endif()
+target_link_libraries(WorkspaceTemplateTests PRIVATE juce::juce_core
+    PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+add_test(NAME WorkspaceTemplateTests COMMAND WorkspaceTemplateTests)

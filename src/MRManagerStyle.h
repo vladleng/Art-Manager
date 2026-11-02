@@ -155,7 +155,7 @@ public:
         setColour(juce::PopupMenu::textColourId, bright);
         setColour(juce::PopupMenu::headerTextColourId, colour(tokens::meta));
         setColour(juce::PopupMenu::highlightedBackgroundColourId, colour(tokens::selected));
-        setColour(juce::PopupMenu::highlightedTextColourId, focus);
+        setColour(juce::PopupMenu::highlightedTextColourId, bright);
         setColour(juce::ListBox::backgroundColourId, canvas);
         setColour(juce::ListBox::textColourId, bright);
         setColour(juce::ListBox::outlineColourId, outline);
