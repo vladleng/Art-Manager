@@ -50,8 +50,8 @@ private:
     void toggle(int);
     void showMenu(arranger::TaskTreeRow, juce::Point<int>);
     void showBackgroundMenu(juce::Point<int>);
-    void editTask(arranger::TaskReference);
-    void editCheckpoint(arranger::TaskReference, juce::String checkpointId = {});
+    void editTask(arranger::TaskReference, juce::Point<int> screenPosition);
+    void editCheckpoint(arranger::TaskReference, juce::String checkpointId, juce::Point<int> screenPosition);
     void apply(const arranger::WorkspaceAction&);
     struct Widths { int name = 350, progress = 145, priority = 100, notes = 320, source = 190; } widths;
     struct Target { arranger::TaskTreeRow row; bool inside = false; bool after = false; int index = -1; };
