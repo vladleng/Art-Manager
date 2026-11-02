@@ -230,6 +230,12 @@ public:
         PortablePackage checked;
         auto result = parse(text, checked);
         if (result.failed()) return result;
+        // Do not permit a portable export to overwrite the live WorkspaceStore,
+        // its previous-state backups or the application settings file.
+        const auto filename = destination.getFileName().toLowerCase();
+        if (filename.endsWith(".workspace.json") || filename.contains(".workspace.json.")
+            || filename.endsWith(".settings"))
+            return juce::Result::fail("Choose an export filename, not a live workspace or backup file.");
         if (destination.isDirectory()) return juce::Result::fail("Export destination is a directory.");
         result = destination.getParentDirectory().createDirectory();
         if (result.failed()) return result;
