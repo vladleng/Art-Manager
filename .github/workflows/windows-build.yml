@@ -1,5 +1,5 @@
 name: Windows App Build
-run-name: Arranger Manager 0.2.6 - ${{ github.ref_name }}
+run-name: Arranger Manager 0.2.6-Upd1 - ${{ github.ref_name }}
 on:
   push:
     branches: [main]
@@ -17,8 +17,9 @@ jobs:
         shell: pwsh
         run: |
           $cmake = Get-Content 'CMakeLists.txt' -Raw
-          if ($cmake -notmatch 'project\(ArrangerManager VERSION 0\.2\.6 LANGUAGES C CXX\)') {
-            throw "CMake version differs from Actions run/artifact version 0.2.6"
+          if ($cmake -notmatch 'project\(ArrangerManager VERSION 0\.2\.6 LANGUAGES C CXX\)' -or
+              $cmake -notmatch 'set\(ARRANGER_MANAGER_VERSION_SUFFIX "-Upd1"\)') {
+            throw "CMake version differs from Actions run/artifact version 0.2.6-Upd1"
           }
           $application = Get-Content 'src/HubApplication.cpp' -Raw
           if ($application -notmatch 'return ARRANGER_MANAGER_VERSION;') {
@@ -41,8 +42,10 @@ jobs:
         shell: pwsh
         run: |
           $cmake = Get-Content 'CMakeLists.txt' -Raw
-          $version = [regex]::Match($cmake, 'project\(ArrangerManager VERSION (\d+\.\d+\.\d+)').Groups[1].Value
-          if ($version -ne '0.2.6') { throw "Version mismatch: $version" }
+          $baseVersion = [regex]::Match($cmake, 'project\(ArrangerManager VERSION (\d+\.\d+\.\d+)').Groups[1].Value
+          $suffix = [regex]::Match($cmake, 'set\(ARRANGER_MANAGER_VERSION_SUFFIX "([^"]+)"\)').Groups[1].Value
+          $version = "$baseVersion$suffix"
+          if ($version -ne '0.2.6-Upd1') { throw "Version mismatch: $version" }
           $packageDir = "package/Arranger Manager $version"
           New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
           Copy-Item -Force "build/ArrangerManagerDesktop_artefacts/Release/Arranger Manager.exe" $packageDir
@@ -55,7 +58,7 @@ jobs:
           }
           # Resolve preview sources before writing to the package; never enumerate
           # the destination while copying (Copy-Item cannot copy a file to itself).
-          foreach ($name in @('template-editor.png', 'template-create.png')) {
+          foreach ($name in @('template-editor.png', 'template-create.png', 'task-properties.png', 'subtask-properties.png')) {
             $source = Get-Item -LiteralPath $name -ErrorAction SilentlyContinue
             if ($null -eq $source) { $source = Get-Item -LiteralPath "build/$name" -ErrorAction SilentlyContinue }
             if ($null -ne $source) { Copy-Item -LiteralPath $source.FullName -Destination $packageDir -Force }
@@ -71,6 +74,6 @@ jobs:
           } | ConvertTo-Json | Set-Content -Encoding utf8 "$packageDir/version.json"
       - uses: actions/upload-artifact@v4
         with:
-          name: Arranger-Manager-0.2.6-Windows-App
+          name: Arranger-Manager-0.2.6-Upd1-Windows-App
           path: package
 
