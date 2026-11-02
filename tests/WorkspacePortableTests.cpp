@@ -112,6 +112,14 @@ int main()
     const auto exportedFile = sandbox.root.getChildFile("export.artmanager.json");
     CHECK(WorkspacePortable::writeExport(exportedFile, text).wasOk());
     CHECK(exportedFile.loadFileAsString() == text);
+    const auto protectedFile = sandbox.root.getChildFile("Arranger Manager.workspace.json");
+    CHECK(protectedFile.replaceWithText("Existing workspace"));
+    CHECK(WorkspacePortable::writeExport(protectedFile, text).failed()
+        && protectedFile.loadFileAsString() == "Existing workspace");
+    const auto protectedBackup = sandbox.root.getChildFile("Arranger Manager.workspace.json.backup");
+    CHECK(protectedBackup.replaceWithText("Existing backup"));
+    CHECK(WorkspacePortable::writeExport(protectedBackup, text).failed()
+        && protectedBackup.loadFileAsString() == "Existing backup");
     CHECK(WorkspacePortable::writeExport(sandbox.root, text).failed());
     auto* saved = target.findTask(first);
     saved->parentTaskId = "missing-parent";
