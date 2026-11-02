@@ -2,6 +2,7 @@
 #include "BlockEditor.h"
 #include "WorkspaceTemplateEditor.h"
 #include "WorkspaceTemplateCreation.h"
+#include "TaskQuickProperties.h"
 #include <iostream>
 static bool check(bool value, const char* message) { if (!value) std::cerr << message << '\n'; return value; }
 #define REQUIRE(value, message) do { if (!check((value), message)) return 1; } while (false)
@@ -116,6 +117,30 @@ int main()
     REQUIRE(creates == 1 && creationName == "Unsaved project"
         && creationField->getText() == "Unsaved project", "Failed creation lost its draft");
     REQUIRE(snapshot(creation, "template-create.png"), "Template create preview");
+    // Quick properties callout preserves the draft on errors; saving is explicit.
+    int propertiesSaves = 0; bool propertiesWrite = false;
+    juce::String editedName, editedNotes;
+    int editedStatus = 0, editedPriority = 0;
+    TaskQuickProperties properties(false, "Original", "Original Notes", 2, 3,
+        [&](juce::String name, juce::String notes, int status, int priority)
+        {
+            ++propertiesSaves; editedName = name; editedNotes = notes;
+            editedStatus = status; editedPriority = priority;
+            return propertiesWrite ? juce::Result::ok() : juce::Result::fail("Simulated save conflict");
+        });
+    auto* quickName = firstText(properties);
+    REQUIRE(quickName && quickName->getText() == "Original", "Quick task properties name");
+    quickName->setText("New task name", false); quickName->onReturnKey();
+    REQUIRE(propertiesSaves == 1 && quickName->getText() == "New task name",
+        "A failed properties save discarded the draft");
+    propertiesWrite = true; quickName->onReturnKey();
+    REQUIRE(propertiesSaves == 2 && editedName == "New task name"
+        && editedNotes == "Original Notes" && editedStatus == 2 && editedPriority == 3,
+        "Quick properties did not forward name, notes, status and priority");
+    REQUIRE(snapshot(properties, "task-properties.png"), "Quick properties preview");
+    TaskQuickProperties checkpointProperties(true, "Subtask", "Subtask Notes", 3, 3,
+        [](juce::String, juce::String, int, int) { return juce::Result::ok(); });
+    REQUIRE(snapshot(checkpointProperties, "subtask-properties.png"), "Quick subtask properties preview");
     // MR Live-like near-black header: the title is drawn independently of
     // the generic V4 colour scheme, not with olive-tinted widget background.
     REQUIRE(mr::ManagerTheme::titleBarColour() == juce::Colour(0xff202123),
@@ -164,7 +189,7 @@ int main()
     edit->setText(juce::String::fromUTF8("Проверить демо перед записью."), false);
     REQUIRE(tree.flush().wasOk() && model.findTask(first)->properties.notes == edit->getText(),
         "Notes did not save from column");
-    view->listBoxItemDoubleClicked(1, click(*list, 200));
+    view->returnKeyPressed(1); // Keyboard Enter retains fast inline rename.
     edit->setText("Cancelled name", false); edit->onEscapeKey();
     REQUIRE(!edit->isVisible() && model.findTask(first)->properties.name != "Cancelled name",
         "Escape changed model");
