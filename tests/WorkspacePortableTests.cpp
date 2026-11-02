@@ -57,6 +57,11 @@ int main()
         && target.findPage(root)->blocks.front().id == "legacy-block");
     const auto keptOnce = target.toJson();
     CHECK(WorkspacePortable::inspect(imported.contents, &target).conflictingIds > 0);
+    auto comparison = target;
+    comparison.findTask(first)->properties.notes = "Changed in destination";
+    comparison.findTask(child)->parentTaskId.clear();
+    const auto differences = WorkspacePortable::inspect(imported.contents, &comparison);
+    CHECK(differences.notesConflicts == 1 && differences.ownerConflicts == 1);
     CHECK(WorkspacePortable::merge(imported, target, PortableImportPolicy::preserveIds).failed());
     CHECK(target.toJson() == keptOnce);
     CHECK(WorkspacePortable::merge(imported, target, PortableImportPolicy::createCopies).wasOk());
@@ -93,6 +98,15 @@ int main()
     CHECK(WorkspacePortable::parse("{bad json", subtree).failed());
     unknown = juce::JSON::parse(text);
     unknown.getDynamicObject()->setProperty("sourceWorkspaceId", "wrong");
+    CHECK(WorkspacePortable::parse(juce::JSON::toString(unknown), subtree).failed());
+    unknown = juce::JSON::parse(text);
+    auto contents = unknown.getProperty("contents", {});
+    contents.getDynamicObject()->setProperty("schemaVersion", 99);
+    CHECK(WorkspacePortable::parse(juce::JSON::toString(unknown), subtree).failed());
+    unknown = juce::JSON::parse(text);
+    contents = unknown.getProperty("contents", {});
+    auto pages = contents.getProperty("pages", {});
+    (*pages.getArray())[0].getDynamicObject()->setProperty("parentPageId", "missing-parent");
     CHECK(WorkspacePortable::parse(juce::JSON::toString(unknown), subtree).failed());
 
     const auto exportedFile = sandbox.root.getChildFile("export.artmanager.json");
