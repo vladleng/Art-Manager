@@ -1,5 +1,5 @@
 name: Windows App Build
-run-name: Arranger Manager 0.2.6-Upd1 - ${{ github.ref_name }}
+run-name: Arranger Manager 0.2.7 - ${{ github.ref_name }}
 on:
   push:
     branches: [main]
@@ -17,9 +17,9 @@ jobs:
         shell: pwsh
         run: |
           $cmake = Get-Content 'CMakeLists.txt' -Raw
-          if ($cmake -notmatch 'project\(ArrangerManager VERSION 0\.2\.6 LANGUAGES C CXX\)' -or
-              $cmake -notmatch 'set\(ARRANGER_MANAGER_VERSION_SUFFIX "-Upd1"\)') {
-            throw "CMake version differs from Actions run/artifact version 0.2.6-Upd1"
+          if ($cmake -notmatch 'project\(ArrangerManager VERSION 0\.2\.7 LANGUAGES C CXX\)' -or
+              $cmake -notmatch 'set\(ARRANGER_MANAGER_VERSION_SUFFIX ""\)') {
+            throw "CMake version differs from Actions run/artifact version 0.2.7"
           }
           $application = Get-Content 'src/HubApplication.cpp' -Raw
           if ($application -notmatch 'return ARRANGER_MANAGER_VERSION;') {
@@ -28,7 +28,7 @@ jobs:
       - name: Configure
         run: cmake -S . -B build
       - name: Build tests
-        run: cmake --build build --config Release --target WorkspaceTemplateTests ArrangementTagTests SongSnapshotTests SongCatalogTests WorkspaceTests WorkspaceNavigationTests BlockEditorTests GeneralTaskTests TaskDomainTests TaskTreeUiTests WorkspaceTaskViewsTests --parallel 2
+        run: cmake --build build --config Release --target WorkspacePortableTests WorkspaceTemplateTests ArrangementTagTests SongSnapshotTests SongCatalogTests WorkspaceTests WorkspaceNavigationTests BlockEditorTests GeneralTaskTests TaskDomainTests TaskTreeUiTests WorkspaceTaskViewsTests --parallel 2
       - name: Test reader, catalog, workspace and tasks
         run: ctest --test-dir build -C Release --output-on-failure
       - name: Capture task table preview
@@ -45,7 +45,7 @@ jobs:
           $baseVersion = [regex]::Match($cmake, 'project\(ArrangerManager VERSION (\d+\.\d+\.\d+)').Groups[1].Value
           $suffix = [regex]::Match($cmake, 'set\(ARRANGER_MANAGER_VERSION_SUFFIX "([^"]+)"\)').Groups[1].Value
           $version = "$baseVersion$suffix"
-          if ($version -ne '0.2.6-Upd1') { throw "Version mismatch: $version" }
+          if ($version -ne '0.2.7') { throw "Version mismatch: $version" }
           $packageDir = "package/Arranger Manager $version"
           New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
           Copy-Item -Force "build/ArrangerManagerDesktop_artefacts/Release/Arranger Manager.exe" $packageDir
@@ -64,16 +64,17 @@ jobs:
             if ($null -ne $source) { Copy-Item -LiteralPath $source.FullName -Destination $packageDir -Force }
           }
           Copy-Item -Force "docs/TEMPLATES-67.md" $packageDir
+          Copy-Item -Force "docs/PORTABILITY-68.md" $packageDir
           Copy-Item -Force "docs/LEGACY-RETIREMENT-7.md" $packageDir
           Copy-Item -Force "docs/WORKSPACE-0.1e-DECISIONS.md" $packageDir
           [ordered]@{
             component = "Arranger Manager"
             version = $version
             commit = "${{ github.sha }}"
-            issue = 67
+            issue = 68
           } | ConvertTo-Json | Set-Content -Encoding utf8 "$packageDir/version.json"
       - uses: actions/upload-artifact@v4
         with:
-          name: Arranger-Manager-0.2.6-Upd1-Windows-App
+          name: Arranger-Manager-0.2.7-Windows-App
           path: package
 
