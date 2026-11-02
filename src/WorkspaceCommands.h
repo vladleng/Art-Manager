@@ -1,6 +1,7 @@
 #pragma once
 #include "WorkspaceQueries.h"
 #include "WorkspaceTemplates.h"
+#include "WorkspacePortable.h"
 #include <algorithm>
 #include <iterator>
 
@@ -11,6 +12,38 @@ class WorkspaceCommands
 {
 public:
     explicit WorkspaceCommands(WorkspaceModel& value) : model(value) {}
+
+    // #68: Controller wraps the entire operation in its one-save transaction.
+    // Imported data is never written directly into the live model or source file.
+    juce::Result importPortable(const PortablePackage& package, PortableImportPolicy policy)
+    {
+        return WorkspacePortable::merge(package, model, policy);
+    }
+
+    // Explicit legacy material transfer. Old page.blocks IDs and content move
+    // intact into a new child note; there is no automatic migration on load.
+    juce::Result moveLegacyBlocksToNote(const juce::String& pageId, juce::String& createdId)
+    {
+        const auto* original = editablePage(pageId);
+        if (!original || original->kind != "page" || original->blocks.empty())
+            return juce::Result::fail("No editable legacy page blocks to move.");
+        auto candidate = model;
+        auto* page = candidate.findPage(pageId);
+        const auto id = juce::Uuid().toString();
+        WorkspacePage note;
+        note.id = id;
+        note.parentPageId = pageId;
+        note.title = juce::String::fromUTF8("Материалы — ") + page->title;
+        note.kind = "note";
+        note.blocks = std::move(page->blocks);
+        page->blocks.clear();
+        candidate.pages.push_back(std::move(note));
+        const auto result = candidate.validate();
+        if (result.failed()) return result;
+        model = std::move(candidate);
+        createdId = id;
+        return juce::Result::ok();
+    }
 
     juce::Result createFromTemplate(const WorkspaceTemplate& definition, const juce::String& ownerOrParent,
         juce::String name, juce::String& createdId)
