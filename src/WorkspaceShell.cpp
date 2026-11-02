@@ -106,6 +106,7 @@ WorkspaceShell::WorkspaceShell(arranger::WorkspaceModel& data,
 
     templateLoad = templateStore.load();
     tasks.saveAsTemplate = [this](arranger::TaskReference ref) { captureAsTemplate(ref.ownerPageId, ref.taskId); };
+    tasks.exportTask = [this](arranger::TaskReference ref) { exportPortable(arranger::PortableScope::taskSubtree, ref.taskId); };
     addPage.onClick = [this] { showTemplateMenu(true); };
     addNote.onClick = [this] { promptPage({}, {}, true); };
     addChild.onClick = [this] { showTemplateMenu(true, selectedPage()); };
@@ -380,18 +381,63 @@ void WorkspaceShell::promptPage(const juce::String& parentId, const juce::String
     }), true);
 }
 
+void WorkspaceShell::exportPortable(arranger::PortableScope scope, const juce::String& selectedId)
+{
+    if (!flushEdits()) return;
+    juce::String payload;
+    arranger::PortablePreview preview;
+    const auto result = arranger::WorkspacePortable::makeExport(model, scope, selectedId, payload, preview);
+    if (result.failed()) { report(result); return; }
+
+    auto* owner = this;
+    juce::Component::SafePointer<WorkspaceShell> safe(owner);
+    juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::InfoIcon,
+        text("Экспорт данных"),
+        text("Предпросмотр содержимого экспорта:") + "\n\n" + preview.description()
+            + "\n\n" + text("Содержит только локальные страницы, задачи и Notes. "
+                             "Файлы DAW, медиа, пути и секреты не включаются."),
+        text("Выбрать файл…"), text("Отмена"), this,
+        juce::ModalCallbackFunction::create([safe, payload](int choice)
+        {
+            if (!safe || choice != 1) return;
+            const auto suggested = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+                .getChildFile("Art-Manager-export.artmanager.json");
+            safe->exportChooser = std::make_unique<juce::FileChooser>(
+                text("Куда сохранить экспорт"), suggested, "*.json");
+            safe->exportChooser->launchAsync(juce::FileBrowserComponent::saveMode
+                | juce::FileBrowserComponent::canSelectFiles
+                | juce::FileBrowserComponent::warnAboutOverwriting,
+                [safe, payload](const juce::FileChooser& chooser)
+                {
+                    if (!safe) return;
+                    const auto destination = chooser.getResult();
+                    if (destination == juce::File()) return;
+                    const auto status = arranger::WorkspacePortable::writeExport(destination, payload);
+                    if (status.failed()) safe->report(status);
+                    else juce::NativeMessageBox::showMessageBoxAsync(
+                        juce::MessageBoxIconType::InfoIcon, text("Экспорт готов"),
+                        destination.getFullPathName(), safe);
+                });
+        }));
+}
+
 void WorkspaceShell::showPageMenu(const juce::String& id, juce::Point<int> position)
 {
     juce::PopupMenu menu; menu.setLookAndFeel(&getLookAndFeel());
     menu.addItem(1, text("Новая вложенная страница…"));
     if (const auto* page = model.findPage(id); page && page->kind == "page")
         menu.addItem(7, text("Сохранить как шаблон…"));
+    if (const auto* page = model.findPage(id); page && (page->kind == "page" || page->kind == "note"))
+        menu.addItem(8, text("Экспортировать страницу с содержимым…"));
     menu.addItem(5, text("Новая вложенная заметка"));
     menu.addItem(2, text("Переименовать"));
     menu.addItem(3, text("Переместить"));
     if (const auto* page = model.findPage(id))
         if (page->kind == "page" && !page->blocks.empty())
+        {
             menu.addItem(6, text("Открыть прежние материалы"));
+            menu.addItem(9, text("Перенести прежние материалы в заметку…"));
+        }
     menu.addSeparator();
     menu.addItem(4, text("В архив"));
     juce::Component::SafePointer<WorkspaceShell> safe(this);
@@ -406,6 +452,24 @@ void WorkspaceShell::showPageMenu(const juce::String& id, juce::Point<int> posit
             else if (item == 3) safe->showMoveMenu(id, position);
             else if (item == 4) safe->archivePage(id);
             else if (item == 6) safe->select("pageBlocks:" + id);
+            else if (item == 8) safe->exportPortable(arranger::PortableScope::pageSubtree, id);
+            else if (item == 9)
+            {
+                if (!safe->flushEdits()) return;
+                juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::QuestionIcon,
+                    text("Перенести прежние материалы"),
+                    text("Блоки будут перенесены с сохранением ID в новую заметку внутри страницы. "
+                         "Перед записью будет создан backup. Продолжить?"),
+                    text("Перенести"), text("Отмена"), safe,
+                    juce::ModalCallbackFunction::create([safe, id](int choice)
+                    {
+                        if (!safe || choice != 1) return;
+                        juce::String noteId;
+                        if (safe->execute([&](arranger::WorkspaceCommands& cmd)
+                            { return cmd.moveLegacyBlocksToNote(id, noteId); }))
+                            safe->select("page:" + noteId);
+                    }));
+            }
         });
 }
 
