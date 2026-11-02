@@ -33,7 +33,7 @@ public:
         priority.setSelectedId(juce::jlimit(1, 4, priorityId), juce::dontSendNotification);
         accept.setButtonText(tr("Сохранить"));
         cancel.setButtonText(tr("Отмена"));
-        for (auto* child : {static_cast<juce::Component*>(&heading), &nameLabel, &name,
+        for (auto* child : std::initializer_list<juce::Component*>{&heading, &nameLabel, &name,
                             &statusLabel, &status, &notesLabel, &notes, &accept, &cancel, &error})
             addAndMakeVisible(child);
         if (!isCheckpoint)
