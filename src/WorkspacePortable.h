@@ -17,13 +17,16 @@ struct PortablePackage
 };
 struct PortablePreview
 {
-    int pages = 0, tasks = 0, blocks = 0, checkpoints = 0, archived = 0, conflictingIds = 0;
+    int pages = 0, tasks = 0, blocks = 0, checkpoints = 0, archived = 0;
+    int conflictingIds = 0, ownerConflicts = 0, notesConflicts = 0;
     juce::String description() const
     {
         return "Pages: " + juce::String(pages) + "\nTasks: " + juce::String(tasks)
             + "\nBlocks: " + juce::String(blocks) + "\nCheckpoints: " + juce::String(checkpoints)
             + "\nArchived records: " + juce::String(archived)
-            + "\nConflicting IDs: " + juce::String(conflictingIds);
+            + "\nConflicting IDs: " + juce::String(conflictingIds)
+            + "\nOwner/parent conflicts: " + juce::String(ownerConflicts)
+            + "\nNotes conflicts: " + juce::String(notesConflicts);
     }
 };
 class WorkspacePortable
@@ -108,6 +111,11 @@ public:
         candidate.selection = root.getProperty("selection", {}).toString();
         if (candidate.sourceWorkspaceId.isEmpty() || candidate.selection.isEmpty())
             return juce::Result::fail("Portable source or selection is missing.");
+        const auto contents = root.getProperty("contents", {});
+        if (contents.getProperty("format", {}).toString() != "ArrangerManagerWorkspace"
+            || !contents.getProperty("schemaVersion", {}).isInt()
+            || static_cast<int>(contents.getProperty("schemaVersion", 0)) != 2)
+            return juce::Result::fail("Portable contents must use workspace schema 2.");
         auto result = WorkspaceModel::fromJson(
             juce::JSON::toString(root.getProperty("contents", {})), candidate.contents);
         if (result.failed()) return result;
@@ -141,6 +149,20 @@ public:
             const auto occupied = ids(*target);
             for (const auto& id : ids(value)) if (id != value.id && occupied.contains(id))
                 ++preview.conflictingIds;
+            for (const auto& page : value.pages)
+                if (const auto* current = target->findPage(page.id))
+                    if (page.parentPageId != current->parentPageId) ++preview.ownerConflicts;
+            for (const auto& task : value.tasks)
+                if (const auto* current = target->findTask(task.id))
+                {
+                    if (task.ownerPageId != current->ownerPageId
+                        || task.parentTaskId != current->parentTaskId) ++preview.ownerConflicts;
+                    if (task.properties.notes != current->properties.notes) ++preview.notesConflicts;
+                    for (const auto& cp : task.checkpoints)
+                        for (const auto& existing : current->checkpoints)
+                            if (cp.id == existing.id && cp.notes != existing.notes)
+                                ++preview.notesConflicts;
+                }
         }
         return preview;
     }
