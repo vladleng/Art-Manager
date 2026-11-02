@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
-project(ArrangerManager VERSION 0.2.6 LANGUAGES C CXX)
-set(ARRANGER_MANAGER_VERSION_SUFFIX "-Upd1")
+project(ArrangerManager VERSION 0.2.7 LANGUAGES C CXX)
+set(ARRANGER_MANAGER_VERSION_SUFFIX "")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -18,7 +18,7 @@ juce_add_gui_app(ArrangerManagerDesktop
 juce_generate_juce_header(ArrangerManagerDesktop)
 target_sources(ArrangerManagerDesktop PRIVATE
     src/ArrangementTag.h src/SongCatalog.h src/SongNoteKeys.h src/HubApplication.cpp
-    src/WorkspaceModel.h src/WorkspaceStore.h
+    src/WorkspaceModel.h src/WorkspaceStore.h src/WorkspacePortable.h
     src/WorkspaceQueries.h src/WorkspaceCommands.h src/WorkspaceController.h src/WorkspaceViewRouting.h src/WorkspaceTaskViews.h
     src/WorkspaceShell.h src/WorkspaceShell.cpp
     src/BlockEditorSession.h src/BlockEditor.h src/BlockEditor.cpp
@@ -56,6 +56,16 @@ endif()
 target_link_libraries(SongCatalogTests PRIVATE juce::juce_core
     PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 add_test(NAME SongCatalogTests COMMAND SongCatalogTests)
+
+add_executable(WorkspacePortableTests tests/WorkspacePortableTests.cpp)
+target_include_directories(WorkspacePortableTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_compile_definitions(WorkspacePortableTests PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+if(MSVC)
+    target_compile_options(WorkspacePortableTests PRIVATE /utf-8)
+endif()
+target_link_libraries(WorkspacePortableTests PRIVATE juce::juce_core
+    PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+add_test(NAME WorkspacePortableTests COMMAND WorkspacePortableTests)
 
 add_executable(WorkspaceTests tests/WorkspaceTests.cpp)
 target_include_directories(WorkspaceTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
