@@ -124,7 +124,7 @@ void TaskTree::rebuild()
 void TaskTree::paint(juce::Graphics& g)
 {
     g.fillAll(mr::colour(mr::tokens::canvas));
-    const Columns columns(widths.name, widths.progress, widths.priority, widths.notes, widths.source);
+    const Columns columns(widths.name, widths.progress, widths.priority, widths.date, widths.notes, widths.source);
     g.setColour(mr::colour(mr::tokens::outline)); g.drawHorizontalLine(31, 0, static_cast<float>(getWidth()));
     g.setColour(mr::colour(mr::tokens::muted)); g.setFont(juce::FontOptions(12.0f));
     const int scroll = list.getViewport() != nullptr ? list.getViewport()->getViewPositionX() : 0;
@@ -154,7 +154,7 @@ void TaskTree::paintListBoxItem(int index, juce::Graphics& g, int width, int hei
 {
     if (index < 0 || index >= getNumRows()) return;
     const auto& row = rows[static_cast<size_t>(index)];
-    const Columns columns(widths.name, widths.progress, widths.priority, widths.notes, widths.source);
+    const Columns columns(widths.name, widths.progress, widths.priority, widths.date, widths.notes, widths.source);
     if (selected)
     {
         g.setColour(mr::colour(mr::tokens::selected)); g.fillRoundedRectangle(1, 1, static_cast<float>(width - 2), static_cast<float>(height - 2), 5);
@@ -260,7 +260,7 @@ void TaskTree::listBoxItemClicked(int index, const juce::MouseEvent& event)
     if (index < 0 || index >= getNumRows()) return;
     const auto row = rows[static_cast<size_t>(index)];
     if (flush().failed()) return;
-    const Columns columns(widths.name, widths.progress, widths.priority, widths.notes, widths.source);
+    const Columns columns(widths.name, widths.progress, widths.priority, widths.date, widths.notes, widths.source);
     if (event.mods.isPopupMenu()) { if (row.addChild) beginInline(row); else showMenu(row, event.getScreenPosition()); return; }
     if (row.addChild) { beginInline(row); return; }
     if (event.x < 22 + row.depth * 14) { for (int i = 0; i < getNumRows(); ++i) if (rows[static_cast<size_t>(i)].key() == row.key()) { toggle(i); break; } return; }
@@ -310,7 +310,7 @@ void TaskTree::listBoxItemDoubleClicked(int index, const juce::MouseEvent& event
 {
     if (event.mods.isPopupMenu() || index < 0 || index >= getNumRows()) return;
     auto row = rows[static_cast<size_t>(index)];
-    const Columns columns(widths.name, widths.progress, widths.priority, widths.notes, widths.source);
+    const Columns columns(widths.name, widths.progress, widths.priority, widths.date, widths.notes, widths.source);
     if (!row.addChild && event.x >= columns.notes && event.x < columns.source)
     {
         row.notes = true;
@@ -333,7 +333,7 @@ void TaskTree::mouseDown(const juce::MouseEvent& event)
         if (resizingColumn >= 0)
         {
             resizeStartX = event.x;
-            const int values[] = {widths.name, widths.progress, widths.priority, widths.notes, widths.source};
+            const int values[] = {widths.name, widths.progress, widths.priority, widths.date, widths.notes, widths.source};
             resizeStartWidth = values[resizingColumn];
             return;
         }
@@ -562,7 +562,7 @@ void TaskTree::positionInline()
         if (row.reference.taskId != editing->reference.taskId
             || row.reference.ownerPageId != editing->reference.ownerPageId
             || row.checkpointId != editing->checkpointId || row.addChild != editing->addChild) continue;
-        const Columns columns(widths.name, widths.progress, widths.priority, widths.notes, widths.source);
+        const Columns columns(widths.name, widths.progress, widths.priority, widths.date, widths.notes, widths.source);
         auto bounds = list.getRowPosition(i, true).translated(list.getX(), list.getY());
         if (editing->notes)
         {
@@ -644,13 +644,13 @@ juce::String TaskTree::columnSettings() const
 }
 void TaskTree::resizeColumns()
 {
-    const Columns columns(widths.name, widths.progress, widths.priority, widths.notes, widths.source);
+    const Columns columns(widths.name, widths.progress, widths.priority, widths.date, widths.notes, widths.source);
     list.setMinimumContentWidth(columns.end);
     list.repaint(); repaint();
 }
 int TaskTree::headerDividerAt(int x) const
 {
-    const Columns columns(widths.name, widths.progress, widths.priority, widths.notes, widths.source);
+    const Columns columns(widths.name, widths.progress, widths.priority, widths.date, widths.notes, widths.source);
     const auto scroll = list.getViewport() ? list.getViewport()->getViewPositionX() : 0;
     const int boundaries[] = {columns.progress, columns.priority, columns.date, columns.notes, columns.source, columns.end};
     for (int i = 0; i < 6; ++i) if (std::abs(x + scroll - boundaries[i]) < 7) return i;

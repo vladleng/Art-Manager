@@ -253,7 +253,8 @@ int main()
     allowFlush = false; tree.showTaskMenu(refs[1], {0, 0});
     REQUIRE(!juce::PopupMenu::dismissAllActiveMenus(), "Menu bypassed flush guard");
     allowFlush = true;
-    REQUIRE(tree.columnSettings().isNotEmpty(), "Column settings unavailable");
+    REQUIRE(juce::StringArray::fromTokens(tree.columnSettings(), ",", "").size() == 6,
+        "Task table must persist six columns including Date");
     REQUIRE(snapshot(tree, "task-table-compact.png"), "Task snapshot");
 
     // Real table drop target dispatch: a nested task is dropped inside another
