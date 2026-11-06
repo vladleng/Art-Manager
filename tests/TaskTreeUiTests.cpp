@@ -3,6 +3,7 @@
 #include "WorkspaceTemplateEditor.h"
 #include "WorkspaceTemplateCreation.h"
 #include "TaskQuickProperties.h"
+#include "TaskPlanEditor.h"
 #include <iostream>
 static bool check(bool value, const char* message) { if (!value) std::cerr << message << '\n'; return value; }
 #define REQUIRE(value, message) do { if (!check((value), message)) return 1; } while (false)
@@ -141,6 +142,20 @@ int main()
     TaskQuickProperties checkpointProperties(true, "Subtask", "Subtask Notes", 3, 3,
         [](juce::String, juce::String, int, int) { return juce::Result::ok(); });
     REQUIRE(snapshot(checkpointProperties, "subtask-properties.png"), "Quick subtask properties preview");
+    REQUIRE(PlanMonthGrid::daysInMonth(2024, 2) == 29
+        && PlanMonthGrid::daysInMonth(2026, 2) == 28
+        && PlanMonthGrid::mondayIndex(2026, 11, 1) == 6
+        && PlanMonthGrid::mondayIndex(2026, 11, 2) == 0,
+        "Gregorian calendar grid misaligned");
+    TaskPlanEditor dateEditor({"2026-11-06", "2026-11-08", "2026-11-11", {}},
+        "2026-11-06", [](arranger::TaskPlan) { return juce::Result::ok(); });
+    REQUIRE(dateEditor.currentDraft()[0] == "2026-11-06"
+        && dateEditor.currentDraft()[1] == "2026-11-08",
+        "Calendar editor modified existing dates on open");
+    dateEditor.selectField(2);
+    REQUIRE(dateEditor.currentDraft()[2] == "2026-11-11",
+        "Calendar editor lost deadline when switching tabs");
+    REQUIRE(snapshot(dateEditor, "task-calendar.png"), "Task calendar preview");
     // MR Live-like near-black header: the title is drawn independently of
     // the generic V4 colour scheme, not with olive-tinted widget background.
     REQUIRE(mr::ManagerTheme::titleBarColour() == juce::Colour(0xff202123),
@@ -184,7 +199,7 @@ int main()
 
     auto* edit = dynamic_cast<juce::TextEditor*>(tree.getChildComponent(1));
     REQUIRE(edit, "Inline editor");
-    view->listBoxItemDoubleClicked(1, click(*list, 748));
+    view->listBoxItemDoubleClicked(1, click(*list, 930));
     REQUIRE(edit->isVisible() && edit->isMultiLine() && opened == 0, "Notes did not open in the column");
     edit->setText(juce::String::fromUTF8("Проверить демо перед записью."), false);
     REQUIRE(tree.flush().wasOk() && model.findTask(first)->properties.notes == edit->getText(),
@@ -204,19 +219,19 @@ int main()
     for (const auto& task : model.tasks) if (task.parentTaskId == first) child = task.id;
     REQUIRE(child.isNotEmpty(), "New task has no parent task ID");
 
-    view->listBoxItemDoubleClicked(2, click(*list, 748));
+    view->listBoxItemDoubleClicked(2, click(*list, 930));
     failWrites = true; edit->setText("Unsaved child notes", false);
     REQUIRE(tree.flush().failed() && edit->isVisible() && edit->getText() == "Unsaved child notes",
         "Failed write lost draft");
     REQUIRE(model.findTask(child)->properties.notes != "Unsaved child notes", "Failed write mutated data");
     failWrites = false; edit->onEscapeKey();
 
-    view->listBoxItemDoubleClicked(2, click(*list, 748));
+    view->listBoxItemDoubleClicked(2, click(*list, 930));
     edit->setText("Child note after blur", false); edit->onFocusLost();
     REQUIRE(model.findTask(child)->properties.notes == "Child note after blur", "Blur did not save child notes");
 
     // Legacy song Notes preserve their original stable key in the same column.
-    view->listBoxItemDoubleClicked(0, click(*list, 748));
+    view->listBoxItemDoubleClicked(0, click(*list, 930));
     edit->setText("Local notes without DAW", false);
     REQUIRE(tree.flush().wasOk(), "Legacy Notes save");
     REQUIRE(model.catalog.localNote(model.catalog.songs[0].path,

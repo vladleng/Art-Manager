@@ -14,10 +14,10 @@ int statusId(arranger::Status value)
 }
 struct Columns
 {
-    int name = 126, progress, priority, notes, source, end;
-    Columns(int n, int pr, int p, int nt, int s)
-        : progress(name + n), priority(progress + pr), notes(priority + p),
-          source(notes + nt), end(source + s) {}
+    int name = 126, progress, priority, date, notes, source, end;
+    Columns(int n, int pr, int p, int d, int nt, int s)
+        : progress(name + n), priority(progress + pr), date(priority + p),
+          notes(date + d), source(notes + nt), end(source + s) {}
 };
 void pill(juce::Graphics& g, juce::String caption, juce::Colour colour, int x, int y, int width, bool dot, mr::Icons* icons = nullptr, const char* iconId = nullptr)
 {
@@ -60,14 +60,16 @@ TaskTree::TaskTree(arranger::WorkspaceModel& data, Execute run, std::function<bo
       persistColumns(std::move(persist))
 {
     auto saved = juce::StringArray::fromTokens(savedColumns, ",", "");
-    if (saved.size() == 5)
+    if (saved.size() == 5 || saved.size() == 6)
     {
+        const bool modern = saved.size() == 6;
         const int values[] = {saved[0].getIntValue(), saved[1].getIntValue(), saved[2].getIntValue(),
-            saved[3].getIntValue(), saved[4].getIntValue()};
+            modern ? saved[3].getIntValue() : 150,
+            saved[modern ? 4 : 3].getIntValue(), saved[modern ? 5 : 4].getIntValue()};
         if (values[0] >= 180 && values[0] <= 900 && values[1] >= 110 && values[1] <= 400
-            && values[2] >= 80 && values[2] <= 240 && values[3] >= 160 && values[3] <= 900
-            && values[4] >= 100 && values[4] <= 600)
-            widths = {values[0], values[1], values[2], values[3], values[4]};
+            && values[2] >= 80 && values[2] <= 240 && values[3] >= 100 && values[3] <= 240
+            && values[4] >= 160 && values[4] <= 900 && values[5] >= 100 && values[5] <= 600)
+            widths = {values[0], values[1], values[2], values[3], values[4], values[5]};
     }
     addAndMakeVisible(list); list.setRowHeight(40); list.setMultipleSelectionEnabled(false);
     resizeColumns();
@@ -131,9 +133,10 @@ void TaskTree::paint(juce::Graphics& g)
     g.drawText(checkpointsOnly ? tr("Подзадача") : tr("Задача"), columns.name, 0, columns.progress - columns.name, 31, juce::Justification::centredLeft);
     g.drawText(tr("Прогресс"), columns.progress + 12, 0, 135, 31, juce::Justification::centredLeft);
     g.drawText(tr("Приоритет"), columns.priority + 5, 0, 72, 31, juce::Justification::centredLeft);
+    g.drawText(tr("Дата"), columns.date + 9, 0, widths.date - 12, 31, juce::Justification::centredLeft);
     g.drawText(tr("Заметки"), columns.notes + 9, 0, widths.notes - 12, 31, juce::Justification::centredLeft);
     if (!checkpointsOnly) g.drawText(tr("Страница"), columns.source + 9, 0, widths.source - 12, 31, juce::Justification::centredLeft);
-    for (auto boundary : {columns.progress, columns.priority, columns.notes, columns.source, columns.end})
+    for (auto boundary : {columns.progress, columns.priority, columns.date, columns.notes, columns.source, columns.end})
     {
         g.setColour(mr::colour(mr::tokens::outline));
         g.drawVerticalLine(boundary, 0, 31.0f);
@@ -211,6 +214,25 @@ void TaskTree::paintListBoxItem(int index, juce::Graphics& g, int width, int hei
     {
         pill(g, "P" + juce::String(priority), mr::priorityFill(priority), columns.priority + 12, 6, 30, false);
     }
+    if (row.checkpointId.isEmpty())
+        if (const auto* task = arranger::WorkspaceQueries::generalTask(model, row.reference))
+        {
+            juce::String dateCaption;
+            if (task->plan.start.isNotEmpty())
+            {
+                dateCaption = task->plan.start.substring(0, 10);
+                if (task->plan.end.isNotEmpty()
+                    && task->plan.end.substring(0, 10) != dateCaption)
+                    dateCaption += " – " + task->plan.end.substring(5, 10);
+            }
+            else if (task->plan.deadline.isNotEmpty())
+                dateCaption = tr("до ") + task->plan.deadline.substring(0, 10);
+            g.setColour(mr::colour(dateCaption.isEmpty() ? mr::tokens::muted : mr::tokens::bright));
+            g.setFont(juce::FontOptions(12.0f));
+            g.drawFittedText(dateCaption.isEmpty() ? tr("+ Дата") : dateCaption,
+                columns.date + 8, 3, widths.date - 15, height - 6,
+                juce::Justification::centredLeft, 1, 0.85f);
+        }
     const auto caption = note(model, row);
     g.setColour(mr::colour(caption.isEmpty() ? mr::tokens::muted : mr::tokens::bright));
     g.setFont(juce::FontOptions(12.0f));
@@ -243,7 +265,7 @@ void TaskTree::listBoxItemClicked(int index, const juce::MouseEvent& event)
     if (row.addChild) { beginInline(row); return; }
     if (event.x < 22 + row.depth * 14) { for (int i = 0; i < getNumRows(); ++i) if (rows[static_cast<size_t>(i)].key() == row.key()) { toggle(i); break; } return; }
     if (event.x < columns.name) { statusMenu(row,event.getScreenPosition()); return; }
-    if (event.x >= columns.priority && event.x < columns.notes && row.checkpointId.isEmpty())
+    if (event.x >= columns.priority && event.x < columns.date && row.checkpointId.isEmpty())
     {
         if (const auto* task = arranger::WorkspaceQueries::generalTask(model,row.reference))
         {
@@ -259,6 +281,12 @@ void TaskTree::listBoxItemClicked(int index, const juce::MouseEvent& event)
                 safe->apply([&](arranger::WorkspaceCommands& cmd) { return cmd.updateTask(row.reference.taskId,expected,next); });
             });
         }
+        return;
+    }
+    if (event.x >= columns.date && event.x < columns.notes && row.checkpointId.isEmpty()
+        && arranger::WorkspaceQueries::generalTask(model, row.reference))
+    {
+        if (event.getNumberOfClicks() == 1) showPlan(row.reference, event.getScreenPosition());
         return;
     }
     const int nameX = columns.name + row.depth * 14;
@@ -315,9 +343,9 @@ void TaskTree::mouseDown(const juce::MouseEvent& event)
 void TaskTree::mouseDrag(const juce::MouseEvent& event)
 {
     if (resizingColumn < 0) return;
-    int* values[] = {&widths.name, &widths.progress, &widths.priority, &widths.notes, &widths.source};
-    const int minimum[] = {180, 110, 80, 160, 100};
-    const int maximum[] = {900, 400, 240, 900, 600};
+    int* values[] = {&widths.name, &widths.progress, &widths.priority, &widths.date, &widths.notes, &widths.source};
+    const int minimum[] = {180, 110, 80, 100, 160, 100};
+    const int maximum[] = {900, 400, 240, 240, 900, 600};
     *values[resizingColumn] = juce::jlimit(minimum[resizingColumn], maximum[resizingColumn],
         resizeStartWidth + event.x - resizeStartX);
     resizeColumns();
@@ -436,7 +464,7 @@ void TaskTree::showPlan(arranger::TaskReference ref, juce::Point<int> position)
     if (!task) return;
     const auto expected = task->plan;
     juce::Component::SafePointer<TaskTree> safe(this);
-    auto panel = std::make_unique<TaskPlanEditor>(expected, [safe, ref, expected](arranger::TaskPlan next)
+    auto panel = std::make_unique<TaskPlanEditor>(expected, planningReferenceDay, [safe, ref, expected](arranger::TaskPlan next)
     {
         if (!safe) return juce::Result::fail("Task view was closed.");
         const auto result = safe->execute([&](arranger::WorkspaceCommands& cmd)
@@ -611,8 +639,8 @@ void TaskTree::statusMenu(arranger::TaskTreeRow row, juce::Point<int> position)
 juce::String TaskTree::columnSettings() const
 {
     return juce::String(widths.name) + "," + juce::String(widths.progress) + ","
-        + juce::String(widths.priority) + "," + juce::String(widths.notes) + ","
-        + juce::String(widths.source);
+        + juce::String(widths.priority) + "," + juce::String(widths.date) + ","
+        + juce::String(widths.notes) + "," + juce::String(widths.source);
 }
 void TaskTree::resizeColumns()
 {
@@ -624,8 +652,8 @@ int TaskTree::headerDividerAt(int x) const
 {
     const Columns columns(widths.name, widths.progress, widths.priority, widths.notes, widths.source);
     const auto scroll = list.getViewport() ? list.getViewport()->getViewPositionX() : 0;
-    const int boundaries[] = {columns.progress, columns.priority, columns.notes, columns.source, columns.end};
-    for (int i = 0; i < 5; ++i) if (std::abs(x + scroll - boundaries[i]) < 7) return i;
+    const int boundaries[] = {columns.progress, columns.priority, columns.date, columns.notes, columns.source, columns.end};
+    for (int i = 0; i < 6; ++i) if (std::abs(x + scroll - boundaries[i]) < 7) return i;
     return -1;
 }
 juce::var TaskTree::getDragSourceDescription(const juce::SparseSet<int>& selected)

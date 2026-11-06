@@ -264,6 +264,7 @@ void WorkspaceShell::refresh()
             return ref.songId.isNotEmpty() || !visible.contains(ref.taskId);
         });
     }
+    tasks.setPlanningReferenceDay(todayDay);
     updateTaskProjection();
     archive.updateContent();
     archive.deselectAllRows();

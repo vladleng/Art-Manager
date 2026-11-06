@@ -16,6 +16,7 @@ public:
     juce::Result flush();
     void setTasks(std::vector<arranger::TaskReference>, bool checkpointsOnly = false);
     void setViewOptions(arranger::TaskViewOptions value);
+    void setPlanningReferenceDay(juce::String value) { planningReferenceDay = std::move(value); }
     void paint(juce::Graphics&) override;
     void paintOverChildren(juce::Graphics&) override;
     void resized() override;
@@ -55,7 +56,7 @@ private:
     void showPlan(arranger::TaskReference, juce::Point<int> screenPosition);
     void editCheckpoint(arranger::TaskReference, juce::String checkpointId, juce::Point<int> screenPosition);
     void apply(const arranger::WorkspaceAction&);
-    struct Widths { int name = 350, progress = 145, priority = 100, notes = 320, source = 190; } widths;
+    struct Widths { int name = 350, progress = 145, priority = 100, date = 150, notes = 320, source = 190; } widths;
     struct Target { arranger::TaskTreeRow row; bool inside = false; bool after = false; int index = -1; };
     std::optional<Target> targetAt(juce::Point<int> point, bool isCheckpoint) const;
     void commitDrop(const juce::String& description, const Target& target);
@@ -79,6 +80,7 @@ private:
     std::set<juce::String> viewExpanded;
     arranger::TaskViewOptions viewOptions;
     mr::Icons icons;
+    juce::String planningReferenceDay = "2026-11-06";
     juce::TextEditor inlineEditor;
     std::optional<arranger::TaskTreeRow> editing;
     juce::String expectedText;
