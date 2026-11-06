@@ -26,6 +26,11 @@ WorkspaceShell::WorkspaceShell(arranger::WorkspaceModel& data,
           std::move(savedColumns), std::move(saveColumns))
 {
     setLookAndFeel(&theme);
+    // Default workspace timezone is Asia/Krasnoyarsk (UTC+7, no DST).
+    // Explicit day editing does not depend on the OS timezone.
+    const auto utcMillis = juce::Time::getCurrentTime().toMilliseconds();
+    todayDay = juce::Time(utcMillis + static_cast<juce::int64>(7 * 60 * 60 * 1000))
+        .toISO8601(true).substring(0, 10);
     if (viewKey == "view:daw") viewKey = "view:legacy"; // Upgrade the old persisted tab without changing workspace data.
     brand.setText("Arranger Manager", juce::dontSendNotification);
     brand.setFont(juce::FontOptions(17.0f, juce::Font::bold));
@@ -57,6 +62,25 @@ WorkspaceShell::WorkspaceShell(arranger::WorkspaceModel& data,
     }
     addAndMakeVisible(tasks);
     addAndMakeVisible(searchBox);
+    addAndMakeVisible(todayDateEditor);
+    todayDateEditor.setText(todayDay, false);
+    todayDateEditor.setTextToShowWhenEmpty("YYYY-MM-DD", mr::colour(mr::tokens::muted));
+    todayDateEditor.setColour(juce::TextEditor::backgroundColourId, mr::colour(mr::tokens::panel));
+    todayDateEditor.setColour(juce::TextEditor::textColourId, mr::colour(mr::tokens::bright));
+    todayDateEditor.setColour(juce::TextEditor::outlineColourId, mr::colour(mr::tokens::outline));
+    todayDateEditor.onReturnKey = [this]
+    {
+        const auto proposed = todayDateEditor.getText().trim();
+        if (!arranger::isCivilDate(proposed))
+        {
+            report(juce::Result::fail("Use a valid YYYY-MM-DD date."));
+            todayDateEditor.setText(todayDay, false);
+            return;
+        }
+        if (!flushEdits()) return;
+        todayDay = proposed;
+        refresh();
+    };
     for (auto* button : {&filterButton, &sortButton, &clearButton})
     {
         addAndMakeVisible(button);
@@ -153,12 +177,16 @@ void WorkspaceShell::resized()
         clearButton.setBounds(right.removeFromRight(62).reduced(2));
         sortButton.setBounds(right.removeFromRight(96).reduced(2));
         filterButton.setBounds(right.reduced(2));
+        if (viewKey == "view:today")
+            todayDateEditor.setBounds(toolbar.removeFromRight(135).reduced(3));
+        else todayDateEditor.setBounds({});
         searchBox.setBounds(toolbar.reduced(2, 3));
         content.removeFromTop(4);
     }
     else
     {
         searchBox.setBounds({});
+        todayDateEditor.setBounds({});
         filterButton.setBounds({});
         sortButton.setBounds({});
         clearButton.setBounds({});
@@ -188,7 +216,8 @@ void WorkspaceShell::refresh()
     const juce::String oldArchiveId = oldArchiveIndex >= 0 && oldArchiveIndex < static_cast<int>(archived.size())
         ? archived[static_cast<size_t>(oldArchiveIndex)] : juce::String();
     rebuilding = true;
-    navigation = {{"view:tasks", text("Все задачи"), 0}, {"view:legacy", text("Архив песен"), 0}};
+    navigation = {{"view:today", text("Сегодня"), 0},
+                  {"view:tasks", text("Все задачи"), 0}, {"view:legacy", text("Архив песен"), 0}};
     const auto globalSearch = viewKey == "view:tasks"
         ? taskViews["view:tasks"].search.trim() : juce::String();
     for (const auto& row : arranger::WorkspaceQueries::activePages(model))
@@ -224,6 +253,17 @@ void WorkspaceShell::refresh()
         std::erase_if(taskReferences, [&](const auto& ref) { return ref.ownerPageId != selectedPage(); });
     else if (viewKey == "view:legacy")
         std::erase_if(taskReferences, [](const auto& ref) { return ref.songId.isEmpty(); });
+    else if (viewKey == "view:today")
+    {
+        const auto today = arranger::tasksForDay(model, todayDay);
+        std::set<juce::String> visible;
+        for (const auto& ref : today.planned) visible.insert(ref.taskId);
+        for (const auto& ref : today.overdue) visible.insert(ref.taskId);
+        std::erase_if(taskReferences, [&](const auto& ref)
+        {
+            return ref.songId.isNotEmpty() || !visible.contains(ref.taskId);
+        });
+    }
     updateTaskProjection();
     archive.updateContent();
     archive.deselectAllRows();
@@ -252,7 +292,8 @@ void WorkspaceShell::select(const juce::String& key)
 
 void WorkspaceShell::showDetails()
 {
-    const bool legacy = viewKey == "view:legacy", allTasks = viewKey == "view:tasks", archivedView = viewKey == "view:archive";
+    const bool legacy = viewKey == "view:legacy", allTasks = viewKey == "view:tasks",
+        todayView = viewKey == "view:today", archivedView = viewKey == "view:archive";
     const bool oldBlocks = viewKey.startsWith("pageBlocks:");
     std::optional<arranger::WorkspacePage> page;
     if (const auto* found = model.findPage(selectedPage())) page = *found;
@@ -262,7 +303,8 @@ void WorkspaceShell::showDetails()
     const bool notePage = page && page->kind == "note";
     const bool taskView = task.has_value();
     const bool showBlocks = notePage || (ordinary && oldBlocks);
-    tasks.setVisible(allTasks || legacy || (ordinary && !oldBlocks));
+    tasks.setVisible(allTasks || todayView || legacy || (ordinary && !oldBlocks));
+    todayDateEditor.setVisible(todayView);
     legacySummary.setVisible(legacy);
     archive.setVisible(archivedView);
     taskDetails->setVisible(taskView);
@@ -292,6 +334,23 @@ void WorkspaceShell::showDetails()
         title.setText(text("Сохранённые песни Studio Pro"), juce::dontSendNotification);
         description.setText(text("Локальные данные и задачи — без чтения .song. Исходные файлы не изменяются."), juce::dontSendNotification);
         legacySummary.setText(arranger::WorkspaceQueries::legacyCatalogSummary(model), false);
+    }
+    else if (todayView)
+    {
+        const auto result = arranger::tasksForDay(model, todayDay);
+        breadcrumb.setText(text("Рабочее пространство / Сегодня"), juce::dontSendNotification);
+        title.setText(text("Сегодня"), juce::dontSendNotification);
+        description.setText(todayDay + " · " + model.timezone
+            + text(" · в плане: ") + juce::String(static_cast<int>(result.planned.size()))
+            + text(" · просрочено: ") + juce::String(static_cast<int>(result.overdue.size()))
+            + text(" · завершено: ") + juce::String(static_cast<int>(result.completed.size())),
+            juce::dontSendNotification);
+        if (taskReferences.empty())
+        {
+            empty.setText(text("На выбранный день нет задач. Планирование — ПКМ по задаче в списке."),
+                juce::dontSendNotification);
+            empty.setVisible(true);
+        }
     }
     else if (allTasks)
     {
@@ -748,7 +807,8 @@ juce::String WorkspaceShell::taskViewKey() const
 {
     if (viewKey.startsWith("page:") || viewKey.startsWith("pageTasks:") || viewKey.startsWith("pageBlocks:"))
         return "page:" + selectedPage();
-    return viewKey == "view:legacy" ? "view:legacy" : "view:tasks";
+    return viewKey == "view:today" ? "view:today"
+        : viewKey == "view:legacy" ? "view:legacy" : "view:tasks";
 }
 void WorkspaceShell::loadTaskViewSettings(const juce::String& saved)
 {
@@ -761,7 +821,7 @@ void WorkspaceShell::loadTaskViewSettings(const juce::String& saved)
             for (const auto& item : *views)
             {
                 const auto key = item.getProperty("key", {}).toString();
-                if (key == "view:tasks" || key.startsWith("page:"))
+                if (key == "view:tasks" || key == "view:today" || key.startsWith("page:"))
                     taskViews[key] = arranger::decodeTaskView(item.getProperty("options", {}).toString());
             }
     }
@@ -772,7 +832,7 @@ void WorkspaceShell::saveTaskViewSettings()
     auto result = std::make_unique<juce::DynamicObject>();
     juce::Array<juce::var> views;
     for (const auto& [key, options] : taskViews)
-        if (key == "view:tasks" || key.startsWith("page:"))
+        if (key == "view:tasks" || key == "view:today" || key.startsWith("page:"))
         {
             auto item = std::make_unique<juce::DynamicObject>();
             item->setProperty("key", key);
