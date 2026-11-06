@@ -1,4 +1,5 @@
 #include "TaskTree.h"
+#include "TaskPlanEditor.h"
 #include "SongNoteKeys.h"
 #include "TaskQuickProperties.h"
 namespace
@@ -368,6 +369,7 @@ void TaskTree::showMenu(arranger::TaskTreeRow row, juce::Point<int> position)
     {
         if (saveAsTemplate && row.checkpointId.isEmpty()) menu.addItem(6, tr("Сохранить как шаблон…"));
         if (exportTask && row.checkpointId.isEmpty()) menu.addItem(7, tr("Экспортировать задачу с подзадачами…"));
+        if (row.checkpointId.isEmpty()) menu.addItem(8, tr("Запланировать / изменить сроки…"));
         juce::PopupMenu statusMenu;
         const auto currentStatus = cp ? cp->status : task->properties.status;
         for (int i = 0; i < 7; ++i) statusMenu.addItem(20 + i, arranger::label(statuses[i]), true, statuses[i] == currentStatus);
@@ -389,7 +391,7 @@ void TaskTree::showMenu(arranger::TaskTreeRow row, juce::Point<int> position)
     if (task) for (const auto& item : task->checkpoints) if (item.archivedAt.isNotEmpty()) archivedIds.push_back(item.id);
     juce::Component::SafePointer<TaskTree> safe(this);
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this).withTargetScreenArea({position.x, position.y, 1, 1}),
-        [safe, row, archivedIds](int item)
+        [safe, row, archivedIds, position](int item)
         {
             if (safe == nullptr || item == 0) return;
             const auto ref = row.reference;
@@ -398,6 +400,7 @@ void TaskTree::showMenu(arranger::TaskTreeRow row, juce::Point<int> position)
             if (item == 5) { if (safe->create) safe->create(); return; }
             if (item == 6) { if (safe->saveAsTemplate) safe->saveAsTemplate(ref); return; }
             if (item == 7) { if (safe->exportTask) safe->exportTask(ref); return; }
+            if (item == 8) { safe->showPlan(ref, position); return; }
             if (item == 4 && row.checkpointId.isEmpty()) { if (safe->archive) safe->archive(ref.taskId); return; }
             // Resolve fresh values after pending editor fields have been flushed. No model pointers survive a menu.
             if (safe->before && !safe->before()) return;
@@ -426,6 +429,29 @@ void TaskTree::showMenu(arranger::TaskTreeRow row, juce::Point<int> position)
             }
         });
 }
+void TaskTree::showPlan(arranger::TaskReference ref, juce::Point<int> position)
+{
+    if (flush().failed() || (before && !before())) return;
+    const auto* task = arranger::WorkspaceQueries::generalTask(model, ref);
+    if (!task) return;
+    const auto expected = task->plan;
+    juce::Component::SafePointer<TaskTree> safe(this);
+    auto panel = std::make_unique<TaskPlanEditor>(expected, [safe, ref, expected](arranger::TaskPlan next)
+    {
+        if (!safe) return juce::Result::fail("Task view was closed.");
+        const auto result = safe->execute([&](arranger::WorkspaceCommands& cmd)
+            { return cmd.updateTaskPlan(ref.taskId, expected, next); });
+        if (result.wasOk())
+        {
+            safe->rebuild();
+            if (safe->changed) safe->changed();
+        }
+        return result;
+    });
+    juce::CallOutBox::launchAsynchronously(std::move(panel),
+        {position.x, position.y, 1, 1}, nullptr);
+}
+
 void TaskTree::editTask(arranger::TaskReference ref, juce::Point<int> position)
 {
     if (flush().failed() || (before && !before())) return;
