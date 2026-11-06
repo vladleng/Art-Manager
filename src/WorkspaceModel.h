@@ -1,5 +1,6 @@
 #pragma once
 #include "SongCatalog.h"
+#include "TaskPlanning.h"
 #include <set>
 
 namespace arranger
@@ -38,6 +39,7 @@ struct WorkspaceTask
     TaskProperties properties;
     std::vector<WorkspaceBlock> blocks;
     std::vector<TaskCheckpoint> checkpoints;
+    TaskPlan plan; // Optional: absent in older workspace schema-2 documents.
 };
 inline juce::Array<juce::var> writeBlocks(const std::vector<WorkspaceBlock>& source)
 {
@@ -217,6 +219,7 @@ struct WorkspaceModel
                 || task.properties.name.trim().isEmpty() || !validStatus(task.properties.status)
                 || task.properties.priority < 1 || task.properties.priority > 4)
                 return fail("Invalid general task identity, owner or properties.");
+            if (validateTaskPlan(task.plan).failed()) return fail("Invalid task schedule.");
             for (const auto& cp : task.checkpoints)
                 if (!addId(cp.id) || cp.name.trim().isEmpty() || !validStatus(cp.status))
                     return fail("Invalid general checkpoint.");
@@ -273,6 +276,15 @@ struct WorkspaceModel
             t->setProperty("archivedAt", task.archivedAt);
             t->setProperty("name", task.properties.name); t->setProperty("notes", task.properties.notes);
             t->setProperty("status", label(task.properties.status)); t->setProperty("priority", task.properties.priority);
+            if (!task.plan.isEmpty())
+            {
+                auto plan = std::make_unique<juce::DynamicObject>();
+                plan->setProperty("start", task.plan.start);
+                plan->setProperty("end", task.plan.end);
+                plan->setProperty("deadline", task.plan.deadline);
+                plan->setProperty("completedAt", task.plan.completedAt);
+                t->setProperty("plan", juce::var(plan.release()));
+            }
             t->setProperty("blocks", writeBlocks(task.blocks));
             juce::Array<juce::var> checkpoints;
             for (const auto& cp : task.checkpoints)
@@ -418,6 +430,18 @@ struct WorkspaceModel
                 task.properties.status = parseStatus(status.toStdString());
                 task.properties.priority = static_cast<int>(t.getProperty("priority", 0));
                 if (status != label(task.properties.status)) return juce::Result::fail("Unknown task status.");
+                if (t.hasProperty("plan"))
+                {
+                    const auto p = t.getProperty("plan", {});
+                    if (!p.isObject()) return juce::Result::fail("Invalid task plan record.");
+                    for (const auto* name : {"start", "end", "deadline", "completedAt"})
+                        if (p.hasProperty(name) && !p.getProperty(name, {}).isString())
+                            return juce::Result::fail("Non-string task plan value.");
+                    task.plan = {p.getProperty("start", {}).toString(),
+                        p.getProperty("end", {}).toString(),
+                        p.getProperty("deadline", {}).toString(),
+                        p.getProperty("completedAt", {}).toString()};
+                }
                 const auto read = readBlocks(t.getProperty("blocks", {}), task.blocks);
                 if (read.failed()) return read;
                 const auto checkpoints = t.getProperty("checkpoints", {});

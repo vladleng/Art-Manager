@@ -289,6 +289,19 @@ public:
         task->properties = std::move(value);
         return juce::Result::ok();
     }
+    // #38: day planning edits the existing local task by stable ID.
+    // UI passes the expected plan so stale changes do not overwrite another edit.
+    juce::Result updateTaskPlan(const juce::String& id, const TaskPlan& expected, TaskPlan next)
+    {
+        auto* task = editableTask(id);
+        if (!task) return juce::Result::fail("Only active general tasks can be planned.");
+        if (task->plan != expected) return juce::Result::fail("Task plan changed elsewhere.");
+        const auto valid = validateTaskPlan(next);
+        if (valid.failed()) return valid;
+        task->plan = std::move(next);
+        return juce::Result::ok();
+    }
+
     juce::Result replaceTaskBlocks(const juce::String& id,
         const std::vector<WorkspaceBlock>& expected, const std::vector<WorkspaceBlock>& blocks)
     {

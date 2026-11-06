@@ -5,6 +5,7 @@
 #include "BlockEditor.h"
 #include "TaskDetails.h"
 #include "WorkspaceTaskViews.h"
+#include "TodayPlanning.h"
 #include "WorkspaceTemplateEditor.h"
 #include <map>
 
@@ -85,7 +86,8 @@ private:
     std::map<juce::String, arranger::TaskViewOptions> taskViews;
     std::function<void(juce::String)> persistTaskViews;
     bool applyingView = false;
-    juce::TextEditor searchBox;
+    juce::TextEditor searchBox, todayDateEditor;
+    juce::String todayDay;
     juce::TextButton filterButton, sortButton, clearButton;
     bool rebuilding = false;
     juce::String dropPageId;
