@@ -23,6 +23,7 @@ public:
     void resized() override;
     void refresh();
     bool flushEdits();
+    void exportPortable(arranger::PortableScope scope, const juce::String& selectedId = {});
     bool isInterestedInDragSource(const SourceDetails&) override;
     void itemDragMove(const SourceDetails&) override;
     void itemDragExit(const SourceDetails&) override;
@@ -101,6 +102,7 @@ private:
     juce::TextButton addPage, addNote, addChild, rename, move, archiveButton;
     BlockEditor blockEditor;
     std::unique_ptr<TaskDetails> taskDetails;
+    std::unique_ptr<juce::FileChooser> exportChooser;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(WorkspaceShell)
 };
 

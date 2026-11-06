@@ -31,6 +31,7 @@ public:
     juce::String columnSettings() const;
     void showTaskMenu(const arranger::TaskReference&, juce::Point<int>);
     std::function<void(arranger::TaskReference)> saveAsTemplate;
+    std::function<void(arranger::TaskReference)> exportTask;
 private:
     int getNumRows() override;
     void paintListBoxItem(int, juce::Graphics&, int, int, bool) override;

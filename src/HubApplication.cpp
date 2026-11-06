@@ -40,6 +40,11 @@ public:
     {
         if (auto* shell = dynamic_cast<WorkspaceShell*>(getContentComponent())) shell->refresh();
     }
+    void exportWorkspace()
+    {
+        if (auto* shell = dynamic_cast<WorkspaceShell*>(getContentComponent()))
+            shell->exportPortable(arranger::PortableScope::allLocal);
+    }
     bool flushEdits()
     {
         if (auto* shell = dynamic_cast<WorkspaceShell*>(getContentComponent())) return shell->flushEdits();
@@ -52,6 +57,9 @@ private:
     {
         juce::PopupMenu menu;
         menu.addItem(1, "Storage information");
+        menu.addSeparator();
+        menu.addItem(5, juce::String::fromUTF8("Экспорт локального рабочего пространства…"));
+        menu.addItem(6, juce::String::fromUTF8("Импорт из файла…"));
         menu.addSeparator();
         menu.addItem(3, "Restore previous workspace backup...");
         menu.addSeparator();
@@ -118,6 +126,74 @@ private:
             nullptr, juce::ModalCallbackFunction::create([](int) { juce::JUCEApplication::quit(); }));
     }
 
+    void beginImport()
+    {
+        if (!window || !window->flushEdits()) return;
+        importChooser = std::make_unique<juce::FileChooser>(
+            juce::String::fromUTF8("Выберите экспорт Art Manager"),
+            juce::File::getSpecialLocation(juce::File::userDocumentsDirectory), "*.json");
+        importChooser->launchAsync(juce::FileBrowserComponent::openMode
+            | juce::FileBrowserComponent::canSelectFiles,
+            [this](const juce::FileChooser& chooser)
+            {
+                if (!window) return;
+                const auto file = chooser.getResult();
+                if (file == juce::File()) return;
+                if (!file.existsAsFile() || file.getSize() > 16 * 1024 * 1024)
+                {
+                    juce::NativeMessageBox::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                        "Import rejected", "File is missing or exceeds 16 MB.", window.get());
+                    return;
+                }
+                arranger::PortablePackage package;
+                const auto parsed = arranger::WorkspacePortable::parse(file.loadFileAsString(), package);
+                if (parsed.failed())
+                {
+                    juce::NativeMessageBox::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                        "Import rejected", parsed.getErrorMessage(), window.get());
+                    return;
+                }
+                const auto preview = arranger::WorkspacePortable::inspect(package.contents, &workspace);
+                const auto conflictText = preview.conflictingIds > 0
+                    ? juce::String::fromUTF8("\n\nКонфликты ID обнаружены: можно импортировать только как копии.")
+                    : juce::String::fromUTF8("\n\nМожно сохранить ID или создать независимые копии.");
+                auto* dialog = new juce::AlertWindow(
+                    juce::String::fromUTF8("Предпросмотр импорта"),
+                    file.getFileName() + "\n" + preview.description() + conflictText
+                        + juce::String::fromUTF8("\n\nСуществующие записи не перезаписываются. "
+                                                 "Перед записью будет создан backup."),
+                    juce::MessageBoxIconType::QuestionIcon, window.get());
+                if (preview.conflictingIds == 0)
+                    dialog->addButton(juce::String::fromUTF8("Сохранить ID"), 1);
+                dialog->addButton(juce::String::fromUTF8("Создать копии"), 2);
+                dialog->addButton(juce::String::fromUTF8("Отмена"), 0,
+                    juce::KeyPress(juce::KeyPress::escapeKey));
+                dialog->enterModalState(true, juce::ModalCallbackFunction::create(
+                    [this, package](int choice)
+                    {
+                        if (choice == 0 || !window || !window->flushEdits()) return;
+                        const auto policy = choice == 1
+                            ? arranger::PortableImportPolicy::preserveIds
+                            : arranger::PortableImportPolicy::createCopies;
+                        const auto result = controller->execute([&](arranger::WorkspaceCommands& cmd)
+                            { return cmd.importPortable(package, policy); });
+                        if (result.failed())
+                            juce::NativeMessageBox::showMessageBoxAsync(
+                                juce::MessageBoxIconType::WarningIcon,
+                                juce::String::fromUTF8("Импорт отменён"), result.getErrorMessage(), window.get());
+                        else
+                        {
+                            window->refreshWorkspace();
+                            juce::NativeMessageBox::showMessageBoxAsync(
+                                juce::MessageBoxIconType::InfoIcon,
+                                juce::String::fromUTF8("Импорт завершён"),
+                                juce::String::fromUTF8("Данные сохранены. Предыдущая версия доступна в backup."),
+                                window.get());
+                        }
+                    }), true);
+            });
+    }
+
     void openMainWindow()
     {
         if (controller == nullptr) controller = std::make_unique<arranger::WorkspaceController>(workspace, *store);
@@ -134,6 +210,14 @@ private:
                             + "\nFile: " + store->getFile().getFullPathName()
                             + "\nBackup: " + store->backupFile().getFullPathName()
                             + "\nLegacy catalog backup: " + store->legacyFile().getFullPathName(), window.get());
+                }
+                else if (action == 5)
+                {
+                    if (window) window->exportWorkspace();
+                }
+                else if (action == 6)
+                {
+                    beginImport();
                 }
                 else if (action == 4)
                 {
@@ -208,6 +292,7 @@ private:
     std::unique_ptr<arranger::WorkspaceStore> store;
     std::unique_ptr<arranger::WorkspaceController> controller;
     std::unique_ptr<HubWindow> window;
+    std::unique_ptr<juce::FileChooser> importChooser;
 };
 }
 START_JUCE_APPLICATION(HubApplication)
