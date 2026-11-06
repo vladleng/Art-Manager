@@ -59,9 +59,11 @@ int main()
         { return cmd.updateTaskPlan(publish, {}, otherPlan); }).wasOk());
     CHECK(model.tasks.size() == 3);
     auto rows = tasksForDay(model, "2026-11-07");
-    CHECK(rows.planned.size() == 2 && rows.overdue.size() == 1
+    // Both deadlines (Nov 5 and Nov 6) are already overdue on Nov 7.
+    // Keep the query's stable task order and verify each identity explicitly.
+    CHECK(rows.planned.size() == 2 && rows.overdue.size() == 2
         && rows.planned[0].taskId == arrange && rows.planned[1].taskId == publish
-        && rows.overdue[0].taskId == arrange);
+        && rows.overdue[0].taskId == arrange && rows.overdue[1].taskId == publish);
     CHECK(tasksForDay(model, "2026-11-09").planned.empty());
     CHECK(model.findTask(child)->plan.isEmpty());
 
