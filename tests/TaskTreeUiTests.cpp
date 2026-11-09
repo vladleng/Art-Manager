@@ -230,22 +230,40 @@ int main()
     edit->setText("Child note after blur", false); edit->onFocusLost();
     REQUIRE(model.findTask(child)->properties.notes == "Child note after blur", "Blur did not save child notes");
 
-    // Draw the actual progress-bar pixels before and after completing a
-    // nested task. This used to be a permanent 0% despite the saved status.
-    const auto progressPixel = [&]() {
+    // Render the actual parent row before/after completing a nested task.
+    // Scan the bar's interior rather than one fragile pixel from an assumed
+    // column position. The same geometry is used by TaskTree::paintListBoxItem.
+    const auto columnWidths = juce::StringArray::fromTokens(tree.columnSettings(), ",", "");
+    REQUIRE(columnWidths.size() == 6, "Date column layout has changed");
+    const int progressStart = 126 + columnWidths[0].getIntValue() + 52;
+    const auto filledProgressPixels = [&]() {
         juce::Image image(juce::Image::ARGB, 1180, 40, true);
         juce::Graphics graphics(image);
         view->paintListBoxItem(1, graphics, 1180, 40, false);
-        return image.getPixelAt(536, 16); // Root row, within the 20% fill.
+        int filled = 0;
+        for (int y = 15; y <= 16; ++y)
+            for (int x = progressStart + 3; x < progressStart + 15; ++x)
+            {
+                const auto colour = image.getPixelAt(x, y);
+                if (colour.getGreen() > colour.getRed() + 30
+                    && colour.getAlpha() >= 128) ++filled;
+            }
+        return filled;
     };
-    const auto emptyProgressPixel = progressPixel();
+    const int beforeFill = filledProgressPixels();
+    REQUIRE(beforeFill == 0, "Progress meter was filled before any subtask was completed");
     REQUIRE(commands.setReferenceStatus({{}, page, child}, {}, arranger::Status::done).wasOk(),
         "Failed to complete the nested task");
     tree.setTasks(refs);
     REQUIRE(arranger::WorkspaceQueries::taskProgress(model, *model.findTask(first))
-            == std::make_pair(1, 5)
-        && progressPixel() != emptyProgressPixel,
-        "Nested DONE failed to update the painted parent progress bar");
+            == std::make_pair(1, 5),
+        "Nested DONE failed to advance derived parent progress");
+    const int afterFill = filledProgressPixels();
+    if (afterFill <= beforeFill)
+        std::cerr << "Rendered progress fill pixels before=" << beforeFill
+                  << " after=" << afterFill << " at x=" << progressStart << "\n";
+    REQUIRE(afterFill > beforeFill,
+        "Nested DONE failed to increase the painted parent progress fill");
 
     // Legacy song Notes preserve their original stable key in the same column.
     view->listBoxItemDoubleClicked(0, click(*list, 930));
