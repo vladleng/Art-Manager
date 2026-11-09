@@ -1,4 +1,5 @@
 #include "TaskTree.h"
+#include "TaskProgressMeter.h"
 #include "TaskPlanEditor.h"
 #include "SongNoteKeys.h"
 #include "TaskQuickProperties.h"
@@ -208,8 +209,7 @@ void TaskTree::paintListBoxItem(int index, juce::Graphics& g, int width, int hei
     const int percent = total > 0 ? done * 100 / total : 0;
     g.setFont(juce::FontOptions(12.0f)); g.setColour(mr::colour(mr::tokens::meta));
     g.drawText(juce::String(percent) + "%", columns.progress + 10, 0, 36, height, juce::Justification::centredLeft);
-    g.setColour(mr::colour(mr::tokens::progressBg)); g.fillRoundedRectangle(static_cast<float>(columns.progress + 52), 14, 76, 4, 2);
-    if (percent > 0) { g.setColour(mr::colour(mr::tokens::progressFill)); g.fillRoundedRectangle(static_cast<float>(columns.progress + 52), 14, 76.0f * static_cast<float>(percent) / 100.0f, 4, 2); }
+    mr::paintTaskProgressMeter(g, static_cast<float>(columns.progress + 52), 14.0f, percent);
     if (priority > 0 && row.checkpointId.isEmpty())
     {
         pill(g, "P" + juce::String(priority), mr::priorityFill(priority), columns.priority + 12, 6, 30, false);

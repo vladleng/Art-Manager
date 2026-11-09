@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 project(ArrangerManager VERSION 0.3.0 LANGUAGES C CXX)
-set(ARRANGER_MANAGER_VERSION_SUFFIX "-Upd1-fix3")
+set(ARRANGER_MANAGER_VERSION_SUFFIX "-Upd1-fix4")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -19,7 +19,7 @@ juce_generate_juce_header(ArrangerManagerDesktop)
 target_sources(ArrangerManagerDesktop PRIVATE
     src/ArrangementTag.h src/SongCatalog.h src/SongNoteKeys.h src/HubApplication.cpp
     src/WorkspaceModel.h src/WorkspaceStore.h src/WorkspacePortable.h
-    src/TaskPlanning.h src/TodayPlanning.h src/TaskPlanEditor.h
+    src/TaskPlanning.h src/TodayPlanning.h src/TaskPlanEditor.h src/TaskProgressMeter.h
     src/WorkspaceQueries.h src/WorkspaceCommands.h src/WorkspaceController.h src/WorkspaceViewRouting.h src/WorkspaceTaskViews.h
     src/WorkspaceShell.h src/WorkspaceShell.cpp
     src/BlockEditorSession.h src/BlockEditor.h src/BlockEditor.cpp
