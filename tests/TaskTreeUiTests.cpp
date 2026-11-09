@@ -230,6 +230,23 @@ int main()
     edit->setText("Child note after blur", false); edit->onFocusLost();
     REQUIRE(model.findTask(child)->properties.notes == "Child note after blur", "Blur did not save child notes");
 
+    // Draw the actual progress-bar pixels before and after completing a
+    // nested task. This used to be a permanent 0% despite the saved status.
+    const auto progressPixel = [&]() {
+        juce::Image image(juce::Image::ARGB, 1180, 40, true);
+        juce::Graphics graphics(image);
+        view->paintListBoxItem(1, graphics, 1180, 40, false);
+        return image.getPixelAt(536, 16); // Root row, within the 20% fill.
+    };
+    const auto emptyProgressPixel = progressPixel();
+    REQUIRE(commands.setReferenceStatus({{}, page, child}, {}, arranger::Status::done).wasOk(),
+        "Failed to complete the nested task");
+    tree.setTasks(refs);
+    REQUIRE(arranger::WorkspaceQueries::taskProgress(model, *model.findTask(first))
+            == std::make_pair(1, 5)
+        && progressPixel() != emptyProgressPixel,
+        "Nested DONE failed to update the painted parent progress bar");
+
     // Legacy song Notes preserve their original stable key in the same column.
     view->listBoxItemDoubleClicked(0, click(*list, 930));
     edit->setText("Local notes without DAW", false);

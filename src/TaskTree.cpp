@@ -181,7 +181,7 @@ void TaskTree::paintListBoxItem(int index, juce::Graphics& g, int width, int hei
     if (const auto* task = arranger::WorkspaceQueries::generalTask(model, row.reference))
     {
         priority = task->properties.priority;
-        if (row.checkpointId.isEmpty()) { const auto progress = arranger::WorkspaceQueries::taskProgress(*task); done = progress.first; total = progress.second; }
+        if (row.checkpointId.isEmpty()) { const auto progress = arranger::WorkspaceQueries::taskProgress(model, *task); done = progress.first; total = progress.second; }
         else if (const auto* cp = checkpoint(model, row)) { name = cp->name; status = cp->status; }
     }
     else if (const auto* task = arranger::WorkspaceQueries::task(model, row.reference))
