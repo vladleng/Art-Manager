@@ -167,6 +167,7 @@ int main()
     WorkspaceModel reload;
     WorkspaceStore reopened(file);
     CHECK(reopened.load({}, {}, reload).wasOk());
+    CHECK(static_cast<int>(juce::JSON::parse(file.loadFileAsString()).getProperty("schemaVersion", 0)) == 3);
     CHECK(reload.findEvent(eventId) != nullptr && reload.findEvent(eventId)->notes == "Soundcheck"
         && reload.findEvent(allDayId)->allDay);
     CHECK(reload.findTask(arrange)->plan == newPlan
@@ -181,10 +182,16 @@ int main()
     CHECK(oldSchema2.findTask(arrange)->plan.isEmpty());
     CHECK(oldSchema2.events.size() == 2);
     auto olderSchema2 = juce::JSON::parse(saved);
+    olderSchema2.getDynamicObject()->setProperty("schemaVersion", 2);
     olderSchema2.getDynamicObject()->removeProperty("events");
     WorkspaceModel missingEvents;
     CHECK(WorkspaceModel::fromJson(juce::JSON::toString(olderSchema2), missingEvents).wasOk()
         && missingEvents.events.empty());
+    auto wronglyVersioned = juce::JSON::parse(saved);
+    wronglyVersioned.getDynamicObject()->setProperty("schemaVersion", 2);
+    WorkspaceModel protectedVersion = reload;
+    CHECK(WorkspaceModel::fromJson(juce::JSON::toString(wronglyVersioned), protectedVersion).failed());
+    CHECK(protectedVersion.events.size() == 2);
     auto corruptEvents = juce::JSON::parse(saved);
     corruptEvents.getDynamicObject()->setProperty("events", "invalid");
     WorkspaceModel unchangedEvents = reload;
