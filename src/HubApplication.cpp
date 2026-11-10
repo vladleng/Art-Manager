@@ -14,7 +14,8 @@ public:
         std::function<void(juce::String)> persistView,
         juce::String savedColumns, std::function<void(juce::String)> persistColumns,
         juce::String savedTaskViews, std::function<void(juce::String)> persistTaskViews, juce::File templateFile,
-        juce::String savedCalendarSidebar, std::function<void(juce::String)> persistCalendarSidebar)
+        juce::String savedCalendarSidebar, std::function<void(juce::String)> persistCalendarSidebar,
+        juce::String savedCalendarFocus, std::function<void(juce::String)> persistCalendarFocus)
         : juce::DocumentWindow("Arranger Manager " + juce::String(ARRANGER_MANAGER_VERSION), mr::ManagerTheme::titleBarColour(),
               juce::DocumentWindow::allButtons), workspaceAction(std::move(action))
     {
@@ -31,7 +32,8 @@ public:
             std::move(selectedView), std::move(persistView), std::move(savedColumns),
             std::move(persistColumns), std::move(savedTaskViews),
             std::move(persistTaskViews), std::move(templateFile),
-            std::move(savedCalendarSidebar), std::move(persistCalendarSidebar)), true);
+            std::move(savedCalendarSidebar), std::move(persistCalendarSidebar),
+            std::move(savedCalendarFocus), std::move(persistCalendarFocus)), true);
         setResizable(true, false);
         setResizeLimits(1240, 760, 2300, 1600);
         centreWithSize(1480, 900);
@@ -293,6 +295,15 @@ private:
                 if (auto* user = settings.getUserSettings())
                 {
                     user->setValue("calendarSidebar", value);
+                    user->saveIfNeeded();
+                }
+            },
+            settings.getUserSettings()->getValue("calendarFocus-" + workspace.id),
+            [this](juce::String value)
+            {
+                if (auto* user = settings.getUserSettings())
+                {
+                    user->setValue("calendarFocus-" + workspace.id, value);
                     user->saveIfNeeded();
                 }
             });
