@@ -142,7 +142,7 @@ add_test(NAME WorkspaceTaskViewsTests COMMAND WorkspaceTaskViewsTests)
 
 juce_add_console_app(TaskTreeUiTests PRODUCT_NAME "TaskTreeUiTests")
 juce_generate_juce_header(TaskTreeUiTests)
-target_sources(TaskTreeUiTests PRIVATE tests/TaskTreeUiTests.cpp src/TaskTree.cpp src/BlockEditor.cpp)
+target_sources(TaskTreeUiTests PRIVATE tests/TaskTreeUiTests.cpp src/TaskTree.cpp src/BlockEditor.cpp src/DayCalendarPanel.cpp)
 target_include_directories(TaskTreeUiTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_compile_definitions(TaskTreeUiTests PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=1)
 if(MSVC)
