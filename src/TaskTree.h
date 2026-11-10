@@ -53,6 +53,7 @@ private:
     void showMenu(arranger::TaskTreeRow, juce::Point<int>);
     void showBackgroundMenu(juce::Point<int>);
     void editTask(arranger::TaskReference, juce::Point<int> screenPosition);
+    void activateNameClick(arranger::TaskTreeRow, int localX, juce::Point<int> screenPosition);
     void showPlan(arranger::TaskReference, juce::Point<int> screenPosition);
     void editCheckpoint(arranger::TaskReference, juce::String checkpointId, juce::Point<int> screenPosition);
     void apply(const arranger::WorkspaceAction&);
@@ -63,6 +64,13 @@ private:
     void drawDropIndicator(juce::Graphics&);
     void resizeColumns();
     int headerDividerAt(int x) const;
+    struct PendingNameClick
+    {
+        arranger::TaskTreeRow row;
+        int rowIndex = -1, localX = 0;
+        juce::Point<int> pressScreen;
+    };
+    std::optional<PendingNameClick> pendingNameClick;
     std::optional<Target> activeDrop;
     int resizingColumn = -1, resizeStartX = 0, resizeStartWidth = 0;
     std::function<void(juce::String)> persistColumns;
