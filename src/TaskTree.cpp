@@ -73,6 +73,11 @@ TaskTree::TaskTree(arranger::WorkspaceModel& data, Execute run, std::function<bo
             widths = {values[0], values[1], values[2], values[3], values[4], values[5]};
     }
     addAndMakeVisible(list); list.setRowHeight(40); list.setMultipleSelectionEnabled(false);
+    // JUCE selects a newly pressed row on mouseDown by default. That also
+    // invokes listBoxItemClicked and opens TaskQuickProperties before the
+    // first drag can begin. Select/click on mouseUp instead: JUCE suppresses
+    // the click when a row is being dragged, including nested task rows.
+    list.setRowSelectedOnMouseDown(false);
     resizeColumns();
     list.setColour(juce::ListBox::backgroundColourId, mr::colour(mr::tokens::canvas));
     list.setColour(juce::ListBox::outlineColourId, juce::Colours::transparentBlack);
