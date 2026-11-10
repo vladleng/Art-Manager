@@ -63,6 +63,12 @@ WorkspaceShell::WorkspaceShell(arranger::WorkspaceModel& data,
     addAndMakeVisible(tasks);
     addAndMakeVisible(searchBox);
     addAndMakeVisible(todayDateEditor);
+    addAndMakeVisible(planTaskButton);
+    planTaskButton.setButtonText(text("+ Из общего списка"));
+    planTaskButton.setTooltip(text("Запланировать существующую задачу из любого проекта"));
+    planTaskButton.setColour(juce::TextButton::buttonColourId, mr::colour(mr::tokens::panel));
+    planTaskButton.setColour(juce::TextButton::textColourOffId, mr::colour(mr::tokens::bright));
+    planTaskButton.onClick = [this] { showPlanTaskMenu(); };
     todayDateEditor.setText(todayDay, false);
     todayDateEditor.setTextToShowWhenEmpty("YYYY-MM-DD", mr::colour(mr::tokens::muted));
     todayDateEditor.setColour(juce::TextEditor::backgroundColourId, mr::colour(mr::tokens::panel));
@@ -178,8 +184,15 @@ void WorkspaceShell::resized()
         sortButton.setBounds(right.removeFromRight(96).reduced(2));
         filterButton.setBounds(right.reduced(2));
         if (viewKey == "view:today")
+        {
             todayDateEditor.setBounds(toolbar.removeFromRight(135).reduced(3));
-        else todayDateEditor.setBounds({});
+            planTaskButton.setBounds(toolbar.removeFromRight(170).reduced(3));
+        }
+        else
+        {
+            todayDateEditor.setBounds({});
+            planTaskButton.setBounds({});
+        }
         searchBox.setBounds(toolbar.reduced(2, 3));
         content.removeFromTop(4);
     }
@@ -187,6 +200,7 @@ void WorkspaceShell::resized()
     {
         searchBox.setBounds({});
         todayDateEditor.setBounds({});
+        planTaskButton.setBounds({});
         filterButton.setBounds({});
         sortButton.setBounds({});
         clearButton.setBounds({});
@@ -265,6 +279,7 @@ void WorkspaceShell::refresh()
         });
     }
     tasks.setPlanningReferenceDay(todayDay);
+    tasks.setDayPlanningMode(viewKey == "view:today");
     updateTaskProjection();
     archive.updateContent();
     archive.deselectAllRows();
@@ -306,6 +321,7 @@ void WorkspaceShell::showDetails()
     const bool showBlocks = notePage || (ordinary && oldBlocks);
     tasks.setVisible(allTasks || todayView || legacy || (ordinary && !oldBlocks));
     todayDateEditor.setVisible(todayView);
+    planTaskButton.setVisible(todayView);
     legacySummary.setVisible(legacy);
     archive.setVisible(archivedView);
     taskDetails->setVisible(taskView);
@@ -348,7 +364,7 @@ void WorkspaceShell::showDetails()
             juce::dontSendNotification);
         if (taskReferences.empty())
         {
-            empty.setText(text("На выбранный день нет задач. Планирование — ПКМ по задаче в списке."),
+            empty.setText(text("На выбранный день нет задач. Нажмите «+ Из общего списка»."),
                 juce::dontSendNotification);
             empty.setVisible(true);
         }
@@ -904,6 +920,68 @@ void WorkspaceShell::showFilterMenu()
             safe->updateTaskProjection();
         });
 }
+void WorkspaceShell::showPlanTaskMenu()
+{
+    if (viewKey != "view:today" || !flushEdits()) return;
+    // A day typed into the field must not silently schedule tasks for the old day.
+    const auto entered = todayDateEditor.getText().trim();
+    if (!arranger::isCivilDate(entered))
+    {
+        report(juce::Result::fail("Use a valid YYYY-MM-DD date."));
+        return;
+    }
+    if (entered != todayDay)
+    {
+        todayDay = entered;
+        refresh();
+    }
+
+    juce::PopupMenu menu;
+    menu.setLookAndFeel(&getLookAndFeel());
+    std::vector<juce::String> candidates;
+    // One menu per source page; its entries refer to existing canonical IDs.
+    // Already-visible and completed tasks need not be offered for addition.
+    for (const auto& pageRow : arranger::WorkspaceQueries::activePages(model))
+    {
+        const auto* page = model.findPage(pageRow.id);
+        if (!page || page->kind != "page") continue;
+        juce::PopupMenu pageTasks;
+        for (const auto& task : model.tasks)
+        {
+            if (task.ownerPageId != page->id
+                || arranger::WorkspaceQueries::taskArchived(model, task.id)
+                || task.properties.status == arranger::Status::done
+                || arranger::planIncludesDay(task.plan, todayDay)
+                || arranger::planDeadlineOverdue(task.plan, todayDay))
+                continue;
+            const int menuId = 1000 + static_cast<int>(candidates.size());
+            candidates.push_back(task.id);
+            auto label = (task.parentTaskId.isNotEmpty() ? text("↳ ") : juce::String())
+                + task.properties.name;
+            if (task.plan.start.isNotEmpty())
+                label += "  ·  " + task.plan.start.substring(0, 10);
+            pageTasks.addItem(menuId, label);
+        }
+        if (pageTasks.getNumItems() > 0)
+            menu.addSubMenu(arranger::WorkspaceQueries::breadcrumb(model, page->id), pageTasks);
+    }
+    if (candidates.empty()) menu.addItem(1, text("Нет доступных задач"), false);
+
+    juce::Component::SafePointer<WorkspaceShell> safe(this);
+    const auto day = todayDay;
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&planTaskButton),
+        [safe, candidates, day](int item)
+        {
+            if (!safe || item < 1000 || item >= 1000 + static_cast<int>(candidates.size())) return;
+            const auto id = candidates[static_cast<size_t>(item - 1000)];
+            const auto* current = safe->model.findTask(id);
+            if (!current || arranger::WorkspaceQueries::taskArchived(safe->model, id)) return;
+            const auto expected = current->plan;
+            safe->execute([&](arranger::WorkspaceCommands& cmd)
+                { return cmd.scheduleTaskForDay(id, expected, day); });
+        });
+}
+
 void WorkspaceShell::showSortMenu()
 {
     if (!flushEdits()) return;
