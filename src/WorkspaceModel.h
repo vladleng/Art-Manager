@@ -447,7 +447,7 @@ struct WorkspaceModel
             return juce::Result::fail("Invalid or unsupported workspace schema; file was not modified.");
         if ((version == 1 && (root.hasProperty("tasks") || root.hasProperty("events")))
             || (version == 2 && root.hasProperty("events")))
-            return juce::Result::fail("Schema 1 contains unexpected task/event data; migration cancelled.");
+            return juce::Result::fail("Workspace schema contains unsupported task/event data; migration cancelled.");
         WorkspaceModel candidate;
         candidate.id = root.getProperty("id", {}).toString();
         candidate.name = root.getProperty("name", {}).toString();
