@@ -28,6 +28,19 @@ int main()
     CHECK(planIncludesDay({"2026-11-06", "2026-11-08", {}, {}}, "2026-11-07"));
     CHECK(!planIncludesDay({"2026-11-06", "2026-11-08", {}, {}}, "2026-11-09"));
     CHECK(planDeadlineOverdue({{}, {}, "2026-11-05", {}}, "2026-11-06"));
+    CHECK(addCivilDays("2024-02-28", 1) == "2024-02-29");
+    CHECK(addCivilDays("2026-12-31", 1) == "2027-01-01");
+    CHECK(addCivilDays("2026-01-01", -1) == "2025-12-31");
+    CHECK(addCivilDays("2026-02-29", 1).isEmpty());
+    TaskPlan moved;
+    const TaskPlan timedRange {"2026-12-31T10:30", "2027-01-02T12:15",
+        "2026-12-30T09:00", "2026-12-31T17:45"};
+    CHECK(taskPlanForDay(timedRange, "2027-01-04", moved).wasOk());
+    CHECK(moved.start == "2027-01-04T10:30" && moved.end == "2027-01-06T12:15"
+        && moved.deadline == timedRange.deadline && moved.completedAt == timedRange.completedAt);
+    CHECK(taskPlanForDay({}, "2026-11-07", moved).wasOk()
+        && moved.start == "2026-11-07" && moved.end.isEmpty());
+    CHECK(taskPlanForDay(timedRange, "2026-11-31", moved).failed());
 
     TestLocation location;
     const auto file = location.path.getChildFile("workspace.json");
@@ -77,6 +90,31 @@ int main()
         && rows.completed[0].taskId == publish);
     CHECK(controller.undoLast().wasOk());
     CHECK(tasksForDay(model, "2026-11-07").planned.size() == 2);
+
+    // #38 stage 2: move a real task, preserve source and metadata, undo it,
+    // then unschedule without deleting deadline or task. No daily task copies.
+    const auto initialCount = model.tasks.size();
+    const auto originalOwner = model.findTask(arrange)->ownerPageId;
+    const auto originalNotes = model.findTask(arrange)->properties.notes;
+    CHECK(controller.execute([&](WorkspaceCommands& cmd)
+        { return cmd.scheduleTaskForDay(arrange, newPlan, "2026-11-10"); }).wasOk());
+    CHECK(model.findTask(arrange)->plan.start == "2026-11-10"
+        && model.findTask(arrange)->plan.end == "2026-11-12"
+        && model.findTask(arrange)->plan.deadline == "2026-11-05");
+    CHECK(model.tasks.size() == initialCount && model.findTask(arrange)->ownerPageId == originalOwner
+        && model.findTask(arrange)->properties.notes == originalNotes);
+    CHECK(controller.execute([&](WorkspaceCommands& cmd)
+        { return cmd.removeTaskFromPlan(arrange, newPlan); }).failed()); // stale CAS
+    CHECK(controller.undoLast().wasOk() && model.findTask(arrange)->plan == newPlan);
+    CHECK(controller.execute([&](WorkspaceCommands& cmd)
+        { return cmd.removeTaskFromPlan(arrange, newPlan); }).wasOk());
+    CHECK(model.findTask(arrange)->plan.start.isEmpty() && model.findTask(arrange)->plan.end.isEmpty()
+        && model.findTask(arrange)->plan.deadline == newPlan.deadline);
+    CHECK(tasksForDay(model, "2026-11-07").planned.size() == 1);
+    CHECK(controller.undoLast().wasOk() && model.findTask(arrange)->plan == newPlan);
+    CHECK(controller.execute([&](WorkspaceCommands& cmd)
+        { return cmd.scheduleTaskForDay(arrange, newPlan, "invalid"); }).failed());
+    CHECK(model.findTask(arrange)->plan == newPlan);
 
     const auto saved = file.loadFileAsString();
     WorkspaceModel reload;
