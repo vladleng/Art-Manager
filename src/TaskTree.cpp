@@ -404,12 +404,14 @@ void TaskTree::mouseUp(const juce::MouseEvent& event)
 }
 void TaskTree::mouseMove(const juce::MouseEvent& event)
 {
+    if (event.eventComponent != this) return; // Child-row hover is not a header-resize gesture.
     setMouseCursor(event.y < 32 && headerDividerAt(event.x) >= 0
         ? juce::MouseCursor::LeftRightResizeCursor : juce::MouseCursor::NormalCursor);
 }
-void TaskTree::mouseExit(const juce::MouseEvent&)
+void TaskTree::mouseExit(const juce::MouseEvent& event)
 {
-    if (resizingColumn < 0) setMouseCursor(juce::MouseCursor::NormalCursor);
+    if (event.eventComponent == this && resizingColumn < 0)
+        setMouseCursor(juce::MouseCursor::NormalCursor);
 }
 void TaskTree::showTaskMenu(const arranger::TaskReference& ref, juce::Point<int> position) { showMenu({ref, {}, false, 0}, position); }
 void TaskTree::showBackgroundMenu(juce::Point<int> position)
