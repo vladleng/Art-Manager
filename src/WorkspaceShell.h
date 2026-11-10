@@ -6,6 +6,7 @@
 #include "TaskDetails.h"
 #include "WorkspaceTaskViews.h"
 #include "TodayPlanning.h"
+#include "DayCalendarPanel.h"
 #include "WorkspaceTemplateEditor.h"
 #include <map>
 
@@ -18,7 +19,9 @@ public:
         juce::String selectedView, std::function<void(juce::String)> saveView,
         juce::String savedColumns = {}, std::function<void(juce::String)> saveColumns = {},
         juce::String savedTaskViews = {}, std::function<void(juce::String)> saveTaskViews = {},
-        juce::File templateFile = {});
+        juce::File templateFile = {},
+        juce::String savedCalendarSidebar = {},
+        std::function<void(juce::String)> saveCalendarSidebar = {});
     ~WorkspaceShell() override;
     void paint(juce::Graphics&) override;
     void resized() override;
@@ -75,7 +78,18 @@ private:
     void updateTaskProjection();
     void showFilterMenu();
     void showSortMenu();
-    void showPlanTaskMenu();
+    void saveCalendarSettings();
+    struct CalendarSplitter final : juce::Component
+    {
+        explicit CalendarSplitter(WorkspaceShell& shell) : owner(shell)
+            { setMouseCursor(juce::MouseCursor::LeftRightResizeCursor); }
+        void paint(juce::Graphics&) override;
+        void mouseDown(const juce::MouseEvent&) override;
+        void mouseDrag(const juce::MouseEvent&) override;
+        void mouseUp(const juce::MouseEvent&) override;
+        WorkspaceShell& owner;
+        int startX = 0, startWidth = 0;
+    };
 
     mr::ManagerTheme theme;
     arranger::WorkspaceModel& model;
@@ -87,9 +101,14 @@ private:
     std::map<juce::String, arranger::TaskViewOptions> taskViews;
     std::function<void(juce::String)> persistTaskViews;
     bool applyingView = false;
-    juce::TextEditor searchBox, todayDateEditor;
-    juce::String todayDay;
-    juce::TextButton filterButton, sortButton, clearButton, planTaskButton;
+    juce::TextEditor searchBox;
+    juce::TextButton filterButton, sortButton, clearButton, calendarToggle;
+    std::function<void(juce::String)> persistCalendarSidebar;
+    bool calendarVisible = true;
+    int calendarWidth = 340;
+    CalendarSplitter calendarSplitter {*this};
+    std::unique_ptr<DayCalendarPanel> calendarPanel;
+    mr::Icons navigationIcons;
     bool rebuilding = false;
     juce::String dropPageId;
     juce::String dropPageAt(juce::Point<int>) const;
