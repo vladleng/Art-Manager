@@ -227,7 +227,13 @@ int main()
     tree.mouseDrag(mouseAt(*firstTaskRow, 480, 16));
     tree.mouseUp(mouseAt(*firstTaskRow, 480, 16));
     REQUIRE(juce::ModalComponentManager::getInstance()->getNumModalComponents() == initialModals,
-        "Dragging a task activated its quick-properties window");
+        "Starting a native drag activated its quick-properties window");
+    list->deselectAllRows();
+    firstTaskRow->mouseDown(press);
+    tree.mouseDrag(mouseAt(*firstTaskRow, 480, 16));
+    tree.mouseUp(mouseAt(*firstTaskRow, 480, 16));
+    REQUIRE(juce::ModalComponentManager::getInstance()->getNumModalComponents() == initialModals,
+        "Dragging without a native drop source opened quick properties on release");
 
     // Repeat without movement: mouseUp (not mouseDown) must open the editor.
     list->deselectAllRows();
@@ -396,6 +402,8 @@ int main()
         const auto dragValue = dragList->getListBoxModel()->getDragSourceDescription(sourceRow);
         REQUIRE(dragValue.toString().startsWith("manager-task|"),
             "Sorted list must still let tasks start a drag into calendar");
+        REQUIRE(dragList->getListBoxModel()->getNumRows() >= 2,
+            "Sorted source view has lost its root tasks");
         REQUIRE(!dragTree.isInterestedInDragSource(drop),
             "Sorted list accidentally enabled internal task reordering");
     }
