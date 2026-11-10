@@ -396,7 +396,7 @@ int main()
     REQUIRE(std::find(found.begin(), found.end(), deepChild) != found.end()
         && std::find(found.begin(), found.end(), otherUnplanned) != found.end(),
         "Unplanned picker lost same-named tasks from different projects");
-    found = arranger::unplannedTaskIds(dragModel, "Parent B", {});
+    found = arranger::unplannedTaskIds(dragModel, "Rehearsal", {});
     REQUIRE(std::find(found.begin(), found.end(), deepChild) != found.end()
         && std::find(found.begin(), found.end(), otherUnplanned) == found.end(),
         "Unplanned search did not use the actual parent task chain");
