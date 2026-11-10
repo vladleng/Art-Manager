@@ -97,17 +97,135 @@ private:
     juce::TextButton saveButton, cancelButton;
     juce::Label error;
 };
+
+// A searchable, scrollable picker for tasks without a planned interval.
+// It resolves tasks by ID on selection and never creates daily task copies.
+class UnplannedTaskPicker final : public juce::Component, private juce::ListBoxModel
+{
+public:
+    using Pick = std::function<bool(const juce::String&)>;
+    UnplannedTaskPicker(const arranger::WorkspaceModel& source,
+        arranger::DayFocusSettings settings, Pick callback)
+        : model(source), focus(std::move(settings)), choose(std::move(callback))
+    {
+        setSize(455, 432);
+        addAndMakeVisible(search);
+        addAndMakeVisible(list);
+        addAndMakeVisible(add);
+        addAndMakeVisible(hint);
+        search.setTextToShowWhenEmpty(tr("Поиск задачи без даты…"),
+            mr::colour(mr::tokens::muted));
+        search.setColour(juce::TextEditor::backgroundColourId, mr::colour(mr::tokens::channel));
+        search.setColour(juce::TextEditor::textColourId, mr::colour(mr::tokens::bright));
+        search.setColour(juce::TextEditor::outlineColourId, mr::colour(mr::tokens::outline));
+        search.onTextChange = [this] { rebuild(); };
+        search.onReturnKey = [this] { pickSelected(); };
+        list.setModel(this);
+        list.setRowHeight(48);
+        list.setColour(juce::ListBox::backgroundColourId, mr::colour(mr::tokens::canvas));
+        list.setMultipleSelectionEnabled(false);
+        hint.setText(tr("Двойной щелчок — запланировать на весь день"),
+            juce::dontSendNotification);
+        hint.setFont(juce::FontOptions(11.0f));
+        hint.setColour(juce::Label::textColourId, mr::colour(mr::tokens::muted));
+        add.setButtonText(tr("Добавить"));
+        add.setColour(juce::TextButton::buttonColourId, mr::colour(mr::tokens::selected));
+        add.onClick = [this] { pickSelected(); };
+        rebuild();
+    }
+
+    ~UnplannedTaskPicker() override { list.setModel(nullptr); }
+
+    void paint(juce::Graphics& g) override
+    {
+        g.fillAll(mr::colour(mr::tokens::panel));
+        g.setColour(mr::colour(mr::tokens::bright));
+        g.setFont(juce::FontOptions(15.0f, juce::Font::bold));
+        g.drawText(tr("Незапланированные задачи"), 12, 8, getWidth() - 24, 27,
+            juce::Justification::centredLeft);
+    }
+    void resized() override
+    {
+        search.setBounds(12, 42, getWidth() - 24, 31);
+        list.setBounds(12, 82, getWidth() - 24, getHeight() - 143);
+        hint.setBounds(12, getHeight() - 54, getWidth() - 125, 37);
+        add.setBounds(getWidth() - 113, getHeight() - 51, 101, 30);
+    }
+
+private:
+    void rebuild()
+    {
+        ids = arranger::unplannedTaskIds(model, search.getText(), focus);
+        list.updateContent();
+        if (!ids.empty()) list.selectRow(0);
+        else list.deselectAllRows();
+        list.repaint();
+    }
+    int getNumRows() override { return static_cast<int>(ids.size()); }
+    void paintListBoxItem(int row, juce::Graphics& g, int width,
+        int height, bool selected) override
+    {
+        if (row < 0 || row >= static_cast<int>(ids.size())) return;
+        const auto* task = model.findTask(ids[static_cast<size_t>(row)]);
+        if (!task) return;
+        if (selected)
+        {
+            g.setColour(mr::colour(mr::tokens::selected));
+            g.fillRoundedRectangle(1.0f, 1.0f, static_cast<float>(width - 2),
+                static_cast<float>(height - 2), 4.0f);
+        }
+        const auto labels = arranger::calendarCardLabels(model, *task);
+        g.setColour(mr::colour(mr::tokens::bright));
+        g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
+        g.drawFittedText(task->properties.name, 9, 3, width - 18, 20,
+            juce::Justification::centredLeft, 1);
+        g.setColour(mr::colour(mr::tokens::meta));
+        g.setFont(juce::FontOptions(10.0f));
+        g.drawFittedText(labels.context, 9, 23, width - 18, 18,
+            juce::Justification::centredLeft, 1);
+    }
+    void listBoxItemDoubleClicked(int row, const juce::MouseEvent&) override
+    {
+        if (row >= 0 && row < static_cast<int>(ids.size())) pick(ids[static_cast<size_t>(row)]);
+    }
+    void pickSelected()
+    {
+        const int row = list.getSelectedRow();
+        if (row >= 0 && row < static_cast<int>(ids.size())) pick(ids[static_cast<size_t>(row)]);
+    }
+    void pick(const juce::String& id)
+    {
+        if (choose && choose(id))
+            if (auto* box = findParentComponentOfClass<juce::CallOutBox>())
+                box->dismiss();
+    }
+    const arranger::WorkspaceModel& model;
+    arranger::DayFocusSettings focus;
+    Pick choose;
+    std::vector<juce::String> ids;
+    juce::TextEditor search;
+    juce::ListBox list {"Unplanned tasks", this};
+    juce::TextButton add;
+    juce::Label hint;
+};
 }
 
 DayCalendarPanel::DayCalendarPanel(arranger::WorkspaceModel& data, Execute command,
     Before flush, std::function<void()> onChanged,
     std::function<void(arranger::TaskReference)> onOpenTask,
-    std::function<void()> onClose)
+    std::function<void()> onClose,
+    juce::String savedFocus, std::function<void(juce::String)> saveFocus)
     : model(data), execute(std::move(command)), before(std::move(flush)),
       changed(std::move(onChanged)), close(std::move(onClose)),
-      openTask(std::move(onOpenTask))
+      openTask(std::move(onOpenTask)), focus(arranger::decodeDayFocus(savedFocus)),
+      saveFocusState(std::move(saveFocus))
 {
-    for (auto* button : {&previous, &next, &today, &newEvent, &dateButton, &dismiss})
+    if (focus.projectId.isNotEmpty()
+        && (!model.findPage(focus.projectId)
+            || arranger::WorkspaceQueries::isArchived(model, focus.projectId)))
+        focus.projectId.clear();
+    for (auto* button : {&previous, &next, &today, &newEvent, &dateButton,
+                          &dismiss, &focusButton, &findTaskButton})
     {
         addAndMakeVisible(button);
         button->setColour(juce::TextButton::buttonColourId, mr::colour(mr::tokens::panel));
@@ -118,6 +236,12 @@ DayCalendarPanel::DayCalendarPanel(arranger::WorkspaceModel& data, Execute comma
     today.setButtonText(tr("Сегодня"));
     newEvent.setButtonText("+");
     dismiss.setButtonText(tr("×"));
+    focusButton.setButtonText(tr("Фильтр"));
+    focusButton.setTooltip(tr("Страница, статус и видимость выполненных"));
+    findTaskButton.setButtonText(tr("⌕"));
+    findTaskButton.setTooltip(tr("Найти незапланированную задачу и добавить в день"));
+    focusButton.onClick = [this] { showFocusMenu(); };
+    findTaskButton.onClick = [this] { showUnplannedPicker(); };
     previous.setTooltip(tr("Предыдущий день"));
     next.setTooltip(tr("Следующий день"));
     newEvent.setTooltip(tr("Создать календарное событие"));
@@ -177,6 +301,7 @@ void DayCalendarPanel::setDay(juce::String value)
     if (!arranger::isCivilDate(value)) return;
     const bool different = day != value;
     day = std::move(value);
+    if (different) allDayScrollRow = 0;
     dateButton.setButtonText(prettyDay(day));
     refresh();
     if (different && changed) changed();
@@ -205,12 +330,17 @@ void DayCalendarPanel::resized()
     dateButton.setBounds(39, 12, juce::jmax(50, w - 150), 28);
     newEvent.setBounds(w - 49, 52, 34, 28);
     dismiss.setBounds(w - 78, 52, 26, 28);
+    focusButton.setBounds(w - 185, 52, 75, 28);
+    findTaskButton.setBounds(w - 108, 52, 28, 28);
     const int rows = static_cast<int>(entriesForDay(true).size());
-    // All-day cards need two visible rows: ancestor context and own title.
-    const int areaHeight = juce::jlimit(110, 270, 49 + rows * 44);
+    const int autoHeight = juce::jlimit(110, 270, 49 + rows * 44);
+    const int maxHeight = juce::jmax(110, getHeight() - 280);
+    const int areaHeight = juce::jlimit(110, maxHeight,
+        focus.allDayHeight > 0 ? focus.allDayHeight : autoHeight);
     allDayArea = {8, 84, juce::jmax(0, w - 16), areaHeight};
-    viewport.setBounds(0, allDayArea.getBottom() + 8, w,
-        juce::jmax(0, getHeight() - allDayArea.getBottom() - 8));
+    allDayGrip = {8, allDayArea.getBottom() + 1, juce::jmax(0, w - 16), 9};
+    viewport.setBounds(0, allDayGrip.getBottom() + 1, w,
+        juce::jmax(0, getHeight() - allDayGrip.getBottom() - 1));
     timeline.setSize(juce::jmax(130, w - 7), 24 * hourPixels);
 }
 
@@ -240,7 +370,7 @@ std::vector<DayCalendarPanel::Entry> DayCalendarPanel::entriesForDay(bool allDay
     };
     for (const auto& task : model.tasks)
     {
-        if (arranger::WorkspaceQueries::taskArchived(model, task.id)
+        if (!arranger::focusMatchesTask(model, task, focus)
             || !arranger::planIncludesDay(task.plan, day)) continue;
         const bool isAllDay = task.plan.start.length() == 10;
         if (isAllDay != allDay) continue;
@@ -263,7 +393,8 @@ std::vector<DayCalendarPanel::Entry> DayCalendarPanel::entriesForDay(bool allDay
     }
     for (const auto& event : model.events)
     {
-        if (event.archivedAt.isNotEmpty() || event.allDay != allDay
+        if (!arranger::focusMatchesEvent(model, event, focus)
+            || event.allDay != allDay
             || event.start.substring(0, 10) > day
             || event.end.substring(0, 10) < day) continue;
         Entry e;
@@ -286,6 +417,20 @@ std::vector<DayCalendarPanel::Entry> DayCalendarPanel::entriesForDay(bool allDay
         if (a.begin != b.begin) return a.begin < b.begin;
         return a.title.compareIgnoreCase(b.title) < 0;
     });
+    if (allDay)
+    {
+        std::vector<juce::String> ids;
+        ids.reserve(result.size());
+        for (const auto& item : result) ids.push_back(item.id);
+        const auto it = focus.dayOrder.find(day);
+        const auto ordered = arranger::effectiveDayOrder(ids,
+            it != focus.dayOrder.end() ? it->second : std::vector<juce::String> {});
+        std::map<juce::String, size_t> positions;
+        for (size_t index = 0; index < ordered.size(); ++index)
+            positions[ordered[index]] = index;
+        std::stable_sort(result.begin(), result.end(), [&](const Entry& a, const Entry& b)
+            { return positions.at(a.id) < positions.at(b.id); });
+    }
     return result;
 }
 
@@ -314,9 +459,12 @@ void DayCalendarPanel::paint(juce::Graphics& g)
     allDayHits.clear();
     auto entries = entriesForDay(true);
     const int available = juce::jmax(0, (allDayArea.getHeight() - 43) / 44);
-    for (int i = 0; i < static_cast<int>(entries.size()) && i < available; ++i)
+    allDayScrollRow = juce::jlimit(0,
+        juce::jmax(0, static_cast<int>(entries.size()) - available), allDayScrollRow);
+    const int first = allDayScrollRow;
+    for (int i = 0; i < available && first + i < static_cast<int>(entries.size()); ++i)
     {
-        const auto& e = entries[static_cast<size_t>(i)];
+        const auto& e = entries[static_cast<size_t>(first + i)];
         const juce::Rectangle<int> rect {allDayArea.getX() + 9,
             allDayArea.getY() + 31 + i * 44, allDayArea.getWidth() - 18, 41};
         g.setColour(e.event ? juce::Colour(0xff355253) : mr::colour(mr::tokens::selected));
@@ -334,13 +482,30 @@ void DayCalendarPanel::paint(juce::Graphics& g)
             rect.getWidth() - 16, 19, juce::Justification::centredLeft, 1);
         allDayHits.push_back({rect, e});
     }
-    if (static_cast<int>(entries.size()) > available)
+    if (allDayScrollRow > 0 || first + available < static_cast<int>(entries.size()))
     {
-        g.setColour(mr::colour(mr::tokens::muted));
-        g.drawText("+" + juce::String(static_cast<int>(entries.size()) - available),
-            allDayArea.getRight() - 35, allDayArea.getBottom() - 21, 27, 16,
+        g.setColour(mr::colour(mr::tokens::meta));
+        g.setFont(juce::FontOptions(9.5f));
+        g.drawText(juce::String(first + 1) + "–"
+            + juce::String(juce::jmin(static_cast<int>(entries.size()), first + available))
+            + "/" + juce::String(static_cast<int>(entries.size())),
+            allDayArea.getRight() - 75, allDayArea.getY() + 8, 65, 15,
             juce::Justification::centredRight);
     }
+    if (dragDayTarget.isNotEmpty())
+        for (const auto& hit : allDayHits)
+            if (hit.entry.id == dragDayTarget)
+            {
+                g.setColour(mr::colour(mr::tokens::focus));
+                const int y = dragDayAfter ? hit.bounds.getBottom() + 1 : hit.bounds.getY() - 2;
+                g.drawHorizontalLine(y, static_cast<float>(hit.bounds.getX()),
+                    static_cast<float>(hit.bounds.getRight()));
+                break;
+            }
+    // A visible grab handle separates all-day entries from the hour grid.
+    g.setColour(mr::colour(mr::tokens::outline));
+    g.fillRoundedRectangle(static_cast<float>(allDayGrip.getCentreX() - 19),
+        static_cast<float>(allDayGrip.getY() + 3), 38.0f, 3.0f, 1.5f);
 }
 
 void DayCalendarPanel::paintTimeline(juce::Graphics& g)
