@@ -32,7 +32,7 @@ inline CalendarCardLabels calendarCardLabels(const WorkspaceModel& model, const 
     const auto context = parentPath.isEmpty() ? page
         : (page.isEmpty() ? parentPath : page + " · " + parentPath);
     const auto compact = parents.isEmpty() ? task.properties.name
-        : parents.getLast() + " › " + task.properties.name;
+        : parents[parents.size() - 1] + " › " + task.properties.name;
     const auto full = context.isEmpty() ? task.properties.name : context + " › " + task.properties.name;
     return {context, compact, full};
 }

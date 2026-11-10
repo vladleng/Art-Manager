@@ -12,6 +12,8 @@ inline juce::String viewAfterTaskCreation(const juce::String& currentView,
     if (currentView == "view:tasks" || currentView == "pageTasks:" + ownerPageId)
         return currentView;
     return "pageTasks:" + ownerPageId;
+}
+
 // Without in-memory navigation history (e.g. restored task detail after
 // restart), use the task's owner page instead of trapping the user.
 inline juce::String viewAfterTaskBack(const juce::String& previousView,
@@ -23,6 +25,5 @@ inline juce::String viewAfterTaskBack(const juce::String& previousView,
         || previousView.startsWith("pageBlocks:"))
         return previousView;
     return ownerPageId.isNotEmpty() ? "pageTasks:" + ownerPageId : "view:tasks";
-}
 }
 }
