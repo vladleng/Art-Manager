@@ -16,6 +16,13 @@ static juce::MouseEvent click(juce::Component& component, float x)
     return {juce::Desktop::getInstance().getMainMouseSource(), {x, 16}, juce::ModifierKeys::leftButtonModifier,
         1, 0, 0, 0, 0, &component, &component, now, {x, 16}, now, 1, false};
 }
+static juce::MouseEvent mouseAt(juce::Component& component, float x, float y)
+{
+    const auto now = juce::Time::getCurrentTime();
+    return {juce::Desktop::getInstance().getMainMouseSource(), {x, y},
+        juce::ModifierKeys::leftButtonModifier,
+        1, 0, 0, 0, 0, &component, &component, now, {x, y}, now, 1, false};
+}
 static juce::TextEditor* firstText(juce::Component& component)
 {
     if (auto* field = dynamic_cast<juce::TextEditor*>(&component)) return field;
@@ -354,12 +361,70 @@ int main()
         "Calendar ancestry was not updated after parent rename");
     dragTree.setLookAndFeel(nullptr);
 
+    // #38/0.3.1-Upd2: day-specific order is UI state, not a source tree
+    // reorder; filtering a visible subset must preserve other IDs.
+    const std::vector<juce::String> initialCards {"A", "B", "C"};
+    const auto movedCards = arranger::moveDayCard(initialCards, "C", "A", false);
+    REQUIRE(movedCards == std::vector<juce::String>({"C", "A", "B"}),
+        "Moving an all-day card did not update visible ID order");
+    REQUIRE(arranger::moveDayCard(initialCards, "invalid", "A", false) == initialCards,
+        "Moving a stale card changed the visual order");
+    REQUIRE(arranger::effectiveDayOrder({"A", "B", "C", "D"}, {"C", "A"})
+            == std::vector<juce::String>({"C", "A", "B", "D"}),
+        "Day ordering lost filtered or newly scheduled IDs");
+    arranger::DayFocusSettings focused;
+    focused.projectId = dragPage;
+    focused.status = "WIP";
+    focused.hideDone = true;
+    focused.allDayHeight = 385;
+    focused.dayOrder["2026-11-10"] = movedCards;
+    focused.dayOrder["2026-11-11"] = {"B", "A"};
+    const auto savedOrder = arranger::decodeDayFocus(arranger::encodeDayFocus(focused));
+    REQUIRE(savedOrder.projectId == dragPage && savedOrder.status == "WIP"
+        && savedOrder.hideDone && savedOrder.allDayHeight == 385
+        && savedOrder.dayOrder.at("2026-11-10") == movedCards
+        && savedOrder.dayOrder.at("2026-11-11") != movedCards,
+        "Day-focus settings did not survive JSON round trip or separated dates");
+    REQUIRE(arranger::decodeDayFocus("1,340").allDayHeight == 0
+        && arranger::decodeDayFocus("{broken").dayOrder.empty(),
+        "Old/corrupt calendar view settings were not safely ignored");
+    juce::String otherPage, otherUnplanned;
+    REQUIRE(dragCmd.createPage({}, "Other project", otherPage).wasOk()
+        && dragCmd.createTask(otherPage, "Edit stems", otherUnplanned).wasOk(),
+        "Create second project fixture");
+    auto found = arranger::unplannedTaskIds(dragModel, "Edit stems", {});
+    REQUIRE(std::find(found.begin(), found.end(), deepChild) != found.end()
+        && std::find(found.begin(), found.end(), otherUnplanned) != found.end(),
+        "Unplanned picker lost same-named tasks from different projects");
+    found = arranger::unplannedTaskIds(dragModel, "Parent B", {});
+    REQUIRE(std::find(found.begin(), found.end(), deepChild) != found.end()
+        && std::find(found.begin(), found.end(), otherUnplanned) == found.end(),
+        "Unplanned search did not use the actual parent task chain");
+    focused.status.clear();
+    found = arranger::unplannedTaskIds(dragModel, "Edit stems", focused);
+    REQUIRE(found.size() == 1 && found[0] == deepChild,
+        "Project focus did not hide unplanned tasks from another project");
+    auto deepOriginal = dragModel.findTask(deepChild)->properties;
+    auto deepDone = deepOriginal;
+    deepDone.status = arranger::Status::done;
+    REQUIRE(dragCmd.updateTask(deepChild, deepOriginal, deepDone).wasOk(),
+        "Make a completed unplanned-task fixture");
+    REQUIRE(arranger::unplannedTaskIds(dragModel, "Edit stems", focused).empty(),
+        "Hide-DONE focus left a completed task in unplanned search");
+    focused.hideDone = false;
+    focused.status = "DONE";
+    REQUIRE(arranger::unplannedTaskIds(dragModel, "Edit stems", focused).size() == 1,
+        "DONE filter did not display the completed task");
+    focused.status.clear();
+
     // #38/0.3.1: the SAME local task is scheduled by dropping its tree
     // descriptor into the persistent day sidebar (not a new task copy).
     const auto beforeCalendarTaskCount = dragModel.tasks.size();
+    juce::String savedCalendarFocus;
     DayCalendarPanel calendar(dragModel,
         [&](const arranger::WorkspaceAction& action) { return action(dragCmd); },
-        [] { return true; }, [] {}, [](arranger::TaskReference) {}, [] {});
+        [] { return true; }, [] {}, [](arranger::TaskReference) {}, [] {},
+        {}, [&](juce::String value) { savedCalendarFocus = value; });
     calendar.setLookAndFeel(&theme);
     calendar.setSize(340, 760);
     calendar.setDay("2026-11-10");
@@ -382,6 +447,21 @@ int main()
     REQUIRE(dragCmd.createCalendarEvent(liveEvent, eventId).wasOk(),
         "Could not create standalone calendar event");
     calendar.refresh();
+    juce::Viewport* calendarViewport = nullptr;
+    for (int i = 0; i < calendar.getNumChildComponents(); ++i)
+        if (auto* viewportCandidate =
+            dynamic_cast<juce::Viewport*>(calendar.getChildComponent(i)))
+            calendarViewport = viewportCandidate;
+    REQUIRE(calendarViewport != nullptr, "Daily calendar timeline viewport missing");
+    const int beforeStretch = calendarViewport->getY();
+    const float grip = static_cast<float>(beforeStretch - 6);
+    calendar.mouseDown(mouseAt(calendar, 100.0f, grip));
+    calendar.mouseDrag(mouseAt(calendar, 100.0f, grip + 72.0f));
+    calendar.mouseUp(mouseAt(calendar, 100.0f, grip + 72.0f));
+    REQUIRE(calendarViewport->getY() >= beforeStretch + 60,
+        "Dragging the lower all-day border failed to extend the day area");
+    REQUIRE(arranger::decodeDayFocus(savedCalendarFocus).allDayHeight > 110,
+        "All-day resized height was not saved outside the workspace model");
     for (auto scale : {1.0f, 1.5f, 2.0f})
     {
         const auto image = calendar.createComponentSnapshot(calendar.getLocalBounds(), true, scale);
