@@ -280,7 +280,6 @@ void WorkspaceShell::refresh()
     else if (viewKey == "view:legacy")
         std::erase_if(taskReferences, [](const auto& ref) { return ref.songId.isEmpty(); });
     tasks.setPlanningReferenceDay(calendarPanel->selectedDay());
-    tasks.setDayPlanningMode(false);
     updateTaskProjection();
     calendarPanel->refresh();
     archive.updateContent();
