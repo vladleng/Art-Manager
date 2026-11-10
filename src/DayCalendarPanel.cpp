@@ -174,9 +174,11 @@ juce::String DayCalendarPanel::prettyDay(const juce::String& date)
 void DayCalendarPanel::setDay(juce::String value)
 {
     if (!arranger::isCivilDate(value)) return;
+    const bool different = day != value;
     day = std::move(value);
     dateButton.setButtonText(prettyDay(day));
     refresh();
+    if (different && changed) changed();
 }
 
 void DayCalendarPanel::refresh()
