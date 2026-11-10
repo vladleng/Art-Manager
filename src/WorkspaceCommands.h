@@ -322,6 +322,60 @@ public:
         return updateTaskPlan(id, expected, std::move(next));
     }
 
+    // Standalone events are local workspace entries, never task clones.
+    juce::Result createCalendarEvent(CalendarEvent event, juce::String& created)
+    {
+        if (event.id.isEmpty()) event.id = juce::Uuid().toString();
+        event.title = event.title.trim();
+        const auto valid = validateCalendarEvent(event);
+        if (valid.failed()) return valid;
+        auto candidate = model;
+        candidate.events.push_back(event);
+        const auto result = candidate.validate();
+        if (result.failed()) return result;
+        model.events.push_back(std::move(event));
+        created = model.events.back().id;
+        return juce::Result::ok();
+    }
+
+    juce::Result updateCalendarEvent(const CalendarEvent& expected, CalendarEvent updated)
+    {
+        auto* found = model.findEvent(expected.id);
+        if (!found || found->archivedAt.isNotEmpty())
+            return juce::Result::fail("Active event not found.");
+        if (*found != expected)
+            return juce::Result::fail("Calendar event changed elsewhere.");
+        updated.title = updated.title.trim();
+        if (updated.id != expected.id || updated.archivedAt != expected.archivedAt)
+            return juce::Result::fail("Event identity cannot be changed.");
+        const auto valid = validateCalendarEvent(updated);
+        if (valid.failed()) return valid;
+        auto candidate = model;
+        *candidate.findEvent(expected.id) = updated;
+        const auto result = candidate.validate();
+        if (result.failed()) return result;
+        *found = std::move(updated);
+        return juce::Result::ok();
+    }
+
+    juce::Result archiveCalendarEvent(const CalendarEvent& expected)
+    {
+        auto* found = model.findEvent(expected.id);
+        if (!found || found->archivedAt.isNotEmpty() || *found != expected)
+            return juce::Result::fail("Calendar event changed or was archived.");
+        found->archivedAt = juce::Time::getCurrentTime().toISO8601(true);
+        return juce::Result::ok();
+    }
+
+    juce::Result scheduleTaskAtSlot(const juce::String& id, const TaskPlan& expected,
+        const juce::String& day, int minute)
+    {
+        TaskPlan next;
+        const auto valid = taskPlanForSlot(expected, day, minute, next);
+        if (valid.failed()) return valid;
+        return updateTaskPlan(id, expected, std::move(next));
+    }
+
     juce::Result replaceTaskBlocks(const juce::String& id,
         const std::vector<WorkspaceBlock>& expected, const std::vector<WorkspaceBlock>& blocks)
     {
