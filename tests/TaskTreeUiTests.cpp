@@ -196,8 +196,33 @@ int main()
     auto* view = list->getListBoxModel();
     REQUIRE(view->getNumRows() == 3 && list->getRowHeight() == 40, "Compact root task table");
 
+    // #38/0.3.1-Upd2-fix2 regression: JUCE normally invokes
+    // listBoxItemClicked on mouseDown for an unselected row, which opens the
+    // task properties callout BEFORE it is possible to begin a drag.
+    // The gesture must wait until mouseUp, when JUCE knows it wasn't a drag.
+    REQUIRE(!list->getRowSelectedOnMouseDown(),
+        "Task rows still dispatch click on mouseDown and block first-time drag");
+    auto* rowCanvas = list->getViewport()->getViewedComponent();
+    juce::Component* firstTaskRow = nullptr;
+    for (int i = 0; rowCanvas && i < rowCanvas->getNumChildComponents(); ++i)
+    {
+        auto* candidate = rowCanvas->getChildComponent(i);
+        if (list->getRowNumberOfComponent(candidate) == 1)
+        {
+            firstTaskRow = candidate;
+            break;
+        }
+    }
+    REQUIRE(firstTaskRow != nullptr, "Could not locate visible task row for click/drag repro");
+    const auto press = click(*firstTaskRow, 10);
+    firstTaskRow->mouseDown(press);
+    REQUIRE(view->getNumRows() == 3,
+        "Pressing/holding the first unselected task already dispatched the click");
+    firstTaskRow->mouseUp(press);
+    REQUIRE(view->getNumRows() == 8,
+        "A completed ordinary click must still expand the task on mouseUp");
+
     // Notes now live in the right-hand column, not in an expandable detail row.
-    view->listBoxItemClicked(1, click(*list, 10));
     REQUIRE(view->getNumRows() == 8, "Opening task must show four checkpoints and one add row, but no Notes row");
     // A checkpoint now has a neutral leaf glyph, never a second DONE checkbox.
     // Clicking its former square must not silently change TODO/DONE.
