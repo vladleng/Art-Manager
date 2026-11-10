@@ -92,7 +92,6 @@ WorkspaceShell::WorkspaceShell(arranger::WorkspaceModel& data,
             resized(); repaint();
         });
     addAndMakeVisible(calendarPanel.get());
-    calendarPanel->setDay(initialDay);
     addAndMakeVisible(calendarSplitter);
     for (auto* button : {&filterButton, &sortButton, &clearButton})
     {
@@ -150,6 +149,9 @@ WorkspaceShell::WorkspaceShell(arranger::WorkspaceModel& data,
     rename.onClick = [this] { promptPage({}, selectedPage()); };
     move.onClick = [this] { showMoveMenu(selectedPage(), move.getScreenBounds().getBottomLeft()); };
     archiveButton.onClick = [this] { archivePage(selectedPage()); };
+    // Date updates notify the owning Shell; do this only after all editors
+    // and taskDetails have been initialized to avoid re-entrant refresh.
+    calendarPanel->setDay(initialDay);
     refresh();
 }
 
@@ -207,13 +209,13 @@ void WorkspaceShell::resized()
         clearButton.setBounds(right.removeFromRight(62).reduced(2));
         sortButton.setBounds(right.removeFromRight(96).reduced(2));
         filterButton.setBounds(right.reduced(2));
-         searchBox.setBounds(toolbar.reduced(2, 3));
+        searchBox.setBounds(toolbar.reduced(2, 3));
         content.removeFromTop(4);
     }
     else
     {
         searchBox.setBounds({});
-         filterButton.setBounds({});
+        filterButton.setBounds({});
         sortButton.setBounds({});
         clearButton.setBounds({});
     }
