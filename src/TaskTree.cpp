@@ -712,9 +712,12 @@ juce::var TaskTree::getDragSourceDescription(const juce::SparseSet<int>& selecte
     const auto* parent = arranger::WorkspaceQueries::generalTask(model, row.reference);
     if (!parent || arranger::WorkspaceQueries::taskArchived(model, parent->id)) return {};
     if (row.checkpointId.isNotEmpty())
-        return manualOrder
-            ? juce::var("manager-checkpoint|" + parent->id + "|" + row.checkpointId)
-            : juce::var();
+    {
+        if (!manualOrder) return {};
+        pendingNameClick.reset(); // The native ListBox drag has started.
+        return "manager-checkpoint|" + parent->id + "|" + row.checkpointId;
+    }
+    pendingNameClick.reset(); // Never invoke a deferred click after JUCE starts DnD.
     return "manager-task|" + parent->id + "|" + parent->ownerPageId + "|"
         + (parent->parentTaskId.isEmpty() ? juce::String("root") : parent->parentTaskId);
 }
