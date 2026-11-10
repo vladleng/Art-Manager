@@ -17,12 +17,12 @@ struct PortablePackage
 };
 struct PortablePreview
 {
-    int pages = 0, tasks = 0, blocks = 0, checkpoints = 0, archived = 0;
+    int pages = 0, tasks = 0, events = 0, blocks = 0, checkpoints = 0, archived = 0;
     int conflictingIds = 0, ownerConflicts = 0, notesConflicts = 0;
     juce::String description() const
     {
         return "Pages: " + juce::String(pages) + "\nTasks: " + juce::String(tasks)
-            + "\nBlocks: " + juce::String(blocks) + "\nCheckpoints: " + juce::String(checkpoints)
+            + "\nEvents: " + juce::String(events) + "\nBlocks: " + juce::String(blocks) + "\nCheckpoints: " + juce::String(checkpoints)
             + "\nArchived records: " + juce::String(archived)
             + "\nConflicting IDs: " + juce::String(conflictingIds)
             + "\nOwner/parent conflicts: " + juce::String(ownerConflicts)
@@ -82,6 +82,12 @@ public:
             for (const auto& task : source.tasks)
                 if (included.contains(task.ownerPageId)) subset.tasks.push_back(task);
         }
+        // Global events belong to the workspace; page-linked events are
+        // included only if their owner page is part of the export.
+        if (scope != PortableScope::taskSubtree)
+            for (const auto& event : source.events)
+                if (scope == PortableScope::allLocal || included.contains(event.ownerPageId))
+                    subset.events.push_back(event);
         result = subset.validate();
         if (result.failed()) return result;
         auto root = std::make_unique<juce::DynamicObject>();
@@ -114,8 +120,9 @@ public:
         const auto contents = root.getProperty("contents", {});
         if (contents.getProperty("format", {}).toString() != "ArrangerManagerWorkspace"
             || !contents.getProperty("schemaVersion", {}).isInt()
-            || static_cast<int>(contents.getProperty("schemaVersion", 0)) != 2)
-            return juce::Result::fail("Portable contents must use workspace schema 2.");
+            || (static_cast<int>(contents.getProperty("schemaVersion", 0)) != 2
+                && static_cast<int>(contents.getProperty("schemaVersion", 0)) != 3))
+            return juce::Result::fail("Portable contents must use workspace schema 2 or 3.");
         auto result = WorkspaceModel::fromJson(
             juce::JSON::toString(root.getProperty("contents", {})), candidate.contents);
         if (result.failed()) return result;
@@ -136,6 +143,11 @@ public:
         {
             ++preview.pages; preview.blocks += static_cast<int>(page.blocks.size());
             if (page.archivedAt.isNotEmpty()) ++preview.archived;
+        }
+        for (const auto& event : value.events)
+        {
+            ++preview.events;
+            if (event.archivedAt.isNotEmpty()) ++preview.archived;
         }
         for (const auto& task : value.tasks)
         {
@@ -198,6 +210,7 @@ public:
                 remap(page.id);
                 for (const auto& block : page.blocks) remap(block.id);
             }
+            for (const auto& event : package.contents.events) remap(event.id);
             for (const auto& task : package.contents.tasks)
             {
                 remap(task.id);
@@ -219,6 +232,12 @@ public:
             for (auto& block : task.blocks) block.id = remap(block.id);
             for (auto& cp : task.checkpoints) cp.id = remap(cp.id);
             candidate.tasks.push_back(std::move(task));
+        }
+        for (auto event : package.contents.events)
+        {
+            event.id = remap(event.id);
+            event.ownerPageId = remap(event.ownerPageId);
+            candidate.events.push_back(std::move(event));
         }
         result = candidate.validate();
         if (result.wasOk()) target = std::move(candidate);
@@ -297,6 +316,7 @@ private:
             for (const auto& block : task.blocks) used.insert(block.id);
             for (const auto& cp : task.checkpoints) used.insert(cp.id);
         }
+        for (const auto& event : value.events) used.insert(event.id);
         for (const auto& folder : value.catalog.folders) used.insert(folder.id);
         for (const auto& song : value.catalog.songs)
         {
