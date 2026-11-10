@@ -242,8 +242,12 @@ int main()
     };
     const auto greenPixels = [&](int percent) {
         juce::Image image(juce::Image::ARGB, 92, 22, true);
-        juce::Graphics graphics(image);
-        mr::paintTaskProgressMeter(graphics, 8.0f, 9.0f, percent);
+        {
+            // Complete the offscreen graphics context before reading pixels.
+            // Other snapshot/image tests in this suite use the same scope.
+            juce::Graphics graphics(image);
+            mr::paintTaskProgressMeter(graphics, 8.0f, 9.0f, percent);
+        }
         int filled = 0;
         for (int y = 10; y <= 11; ++y)
             for (int x = 11; x < 21; ++x)
@@ -259,10 +263,15 @@ int main()
     REQUIRE(commands.setReferenceStatus({{}, page, child}, {}, arranger::Status::done).wasOk(),
         "Failed to complete the nested task");
     tree.setTasks(refs);
-    REQUIRE(arranger::WorkspaceQueries::taskProgress(model, *model.findTask(first))
-            == std::make_pair(1, 5) && progressPercent() == 20
-            && greenPixels(progressPercent()) > 0,
-        "Nested DONE did not advance the domain progress and its painted fill");
+    const auto completedProgress = arranger::WorkspaceQueries::taskProgress(model, *model.findTask(first));
+    REQUIRE(completedProgress == std::make_pair(1, 5) && progressPercent() == 20,
+        "Nested DONE did not advance the derived parent progress to 20%");
+    const auto filledAfter = greenPixels(progressPercent());
+    if (filledAfter <= 0)
+        std::cerr << "Progress fill absent at 20%; token="
+                  << mr::colour(mr::tokens::progressFill).toDisplayString(true)
+                  << " green-pixels=" << filledAfter << "\n";
+    REQUIRE(filledAfter > 0, "Progress meter did not paint its 20% fill");
 
     // Legacy song Notes preserve their original stable key in the same column.
     view->listBoxItemDoubleClicked(0, click(*list, 930));
