@@ -41,6 +41,31 @@ struct WorkspaceTask
     std::vector<TaskCheckpoint> checkpoints;
     TaskPlan plan; // Optional: absent in older workspace schema-2 documents.
 };
+
+// #38/0.3.1: independent calendar entries are NOT WorkspaceTask copies.
+// An empty ownerPageId means a workspace-wide event without a parent page.
+struct CalendarEvent
+{
+    juce::String id, title, notes, start, end, ownerPageId, archivedAt;
+    bool allDay = false;
+    bool operator==(const CalendarEvent&) const = default;
+};
+inline juce::Result validateCalendarEvent(const CalendarEvent& e)
+{
+    if (e.id.isEmpty() || e.title.trim().isEmpty() || e.title.length() > 256
+        || e.notes.length() > 10000)
+        return juce::Result::fail("Invalid event identity, title or notes.");
+    if (e.allDay)
+    {
+        if (!isCivilDate(e.start) || !isCivilDate(e.end) || e.end.compare(e.start) < 0)
+            return juce::Result::fail("All-day events require valid date-only start/end.");
+    }
+    else if (e.start.length() != 16 || e.end.length() != 16
+        || !isCivilDateTime(e.start) || !isCivilDateTime(e.end)
+        || e.end.compare(e.start) <= 0)
+        return juce::Result::fail("Timed events require increasing local start/end.");
+    return juce::Result::ok();
+}
 inline juce::Array<juce::var> writeBlocks(const std::vector<WorkspaceBlock>& source)
 {
     juce::Array<juce::var> result;
@@ -77,6 +102,17 @@ struct WorkspaceModel
     SongCatalog catalog;
     std::vector<WorkspacePage> pages;
     std::vector<WorkspaceTask> tasks;
+    std::vector<CalendarEvent> events; // Optional schema-2 field, absent in older workspaces.
+
+    const CalendarEvent* findEvent(const juce::String& eventId) const
+    {
+        for (const auto& event : events) if (event.id == eventId) return &event;
+        return nullptr;
+    }
+    CalendarEvent* findEvent(const juce::String& eventId)
+    {
+        return const_cast<CalendarEvent*>(std::as_const(*this).findEvent(eventId));
+    }
 
     const WorkspacePage* findPage(const juce::String& pageId) const
     {
@@ -228,6 +264,17 @@ struct WorkspaceModel
                     && block.type != "list" && block.type != "checklist" && block.type != "link"))
                     return fail("Invalid task description block.");
         }
+        for (const auto& event : events)
+        {
+            if (!addId(event.id) || validateCalendarEvent(event).failed())
+                return fail("Invalid or duplicate calendar event.");
+            if (event.ownerPageId.isNotEmpty())
+            {
+                const auto* owner = findPage(event.ownerPageId);
+                if (!owner || (owner->kind != "page" && owner->kind != "note"))
+                    return fail("Calendar event owner page is missing.");
+            }
+        }
         return juce::Result::ok();
     }
 
@@ -298,6 +345,21 @@ struct WorkspaceModel
             taskArray.add(juce::var(t.release()));
         }
         root->setProperty("tasks", taskArray);
+        if (!events.empty())
+        {
+            juce::Array<juce::var> eventArray;
+            for (const auto& event : events)
+            {
+                auto e = std::make_unique<juce::DynamicObject>();
+                e->setProperty("id", event.id); e->setProperty("title", event.title);
+                e->setProperty("notes", event.notes); e->setProperty("start", event.start);
+                e->setProperty("end", event.end); e->setProperty("allDay", event.allDay);
+                e->setProperty("ownerPageId", event.ownerPageId);
+                e->setProperty("archivedAt", event.archivedAt);
+                eventArray.add(juce::var(e.release()));
+            }
+            root->setProperty("events", eventArray);
+        }
         return juce::JSON::toString(juce::var(root.release()));
     }
 
@@ -383,8 +445,8 @@ struct WorkspaceModel
         if (!root.isObject() || root.getProperty("format", {}).toString() != "ArrangerManagerWorkspace"
             || (version != 1 && version != 2))
             return juce::Result::fail("Invalid or unsupported workspace schema; file was not modified.");
-        if (version == 1 && root.hasProperty("tasks"))
-            return juce::Result::fail("Schema 1 contains unexpected task data; migration cancelled.");
+        if (version == 1 && (root.hasProperty("tasks") || root.hasProperty("events")))
+            return juce::Result::fail("Schema 1 contains unexpected task/event data; migration cancelled.");
         WorkspaceModel candidate;
         candidate.id = root.getProperty("id", {}).toString();
         candidate.name = root.getProperty("name", {}).toString();
@@ -457,6 +519,29 @@ struct WorkspaceModel
                     task.checkpoints.push_back(std::move(cp));
                 }
                 candidate.tasks.push_back(std::move(task));
+            }
+            if (root.hasProperty("events"))
+            {
+                const auto rawEvents = root.getProperty("events", {});
+                if (!rawEvents.isArray()) return juce::Result::fail("Calendar events must be an array.");
+                for (const auto& e : *rawEvents.getArray())
+                {
+                    if (!e.isObject() || !e.getProperty("allDay", {}).isBool())
+                        return juce::Result::fail("Invalid calendar event record.");
+                    for (const auto* key : {"id", "title", "notes", "start", "end", "ownerPageId", "archivedAt"})
+                        if (e.hasProperty(key) && !e.getProperty(key, {}).isString())
+                            return juce::Result::fail("Non-string calendar event field.");
+                    CalendarEvent event;
+                    event.id = e.getProperty("id", {}).toString();
+                    event.title = e.getProperty("title", {}).toString();
+                    event.notes = e.getProperty("notes", {}).toString();
+                    event.start = e.getProperty("start", {}).toString();
+                    event.end = e.getProperty("end", {}).toString();
+                    event.ownerPageId = e.getProperty("ownerPageId", {}).toString();
+                    event.archivedAt = e.getProperty("archivedAt", {}).toString();
+                    event.allDay = static_cast<bool>(e.getProperty("allDay", false));
+                    candidate.events.push_back(std::move(event));
+                }
             }
         }
         const auto result = candidate.validate();
