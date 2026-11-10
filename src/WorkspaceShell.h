@@ -21,7 +21,9 @@ public:
         juce::String savedTaskViews = {}, std::function<void(juce::String)> saveTaskViews = {},
         juce::File templateFile = {},
         juce::String savedCalendarSidebar = {},
-        std::function<void(juce::String)> saveCalendarSidebar = {});
+        std::function<void(juce::String)> saveCalendarSidebar = {},
+        juce::String savedCalendarFocus = {},
+        std::function<void(juce::String)> saveCalendarFocus = {});
     ~WorkspaceShell() override;
     void paint(juce::Graphics&) override;
     void resized() override;
