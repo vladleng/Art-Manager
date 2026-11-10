@@ -48,6 +48,13 @@ WorkspaceShell::WorkspaceShell(arranger::WorkspaceModel& data,
         label->setColour(juce::Label::textColourId, mr::colour(mr::tokens::bright));
     }
     breadcrumb.setColour(juce::Label::textColourId, mr::colour(mr::tokens::muted));
+    addAndMakeVisible(taskBack);
+    taskBack.setButtonText(text("←"));
+    taskBack.setTooltip(text("Назад к предыдущему списку задач"));
+    taskBack.getProperties().set("mrIconOnly", true);
+    taskBack.setColour(juce::TextButton::buttonColourId, mr::colour(mr::tokens::canvas));
+    taskBack.setColour(juce::TextButton::textColourOffId, mr::colour(mr::tokens::bright));
+    taskBack.onClick = [this] { goBackFromTask(); };
     description.setColour(juce::Label::textColourId, mr::colour(mr::tokens::meta));
     addPage.setButtonText(text("+ Страница"));
     addNote.setButtonText(text("+ Заметка"));
@@ -194,7 +201,12 @@ void WorkspaceShell::resized()
     calendarToggle.setBounds(getWidth() - sidebar - 45, 12, 31, 29);
     auto content = getLocalBounds().withTrimmedLeft(250)
         .withTrimmedRight(sidebar + (calendarVisible ? 6 : 0)).reduced(14);
-    breadcrumb.setBounds(content.removeFromTop(28));
+    auto topLine = content.removeFromTop(28);
+    if (viewKey.startsWith("task:"))
+        taskBack.setBounds(topLine.removeFromLeft(32).reduced(2));
+    else
+        taskBack.setBounds({});
+    breadcrumb.setBounds(topLine);
     title.setBounds(content.removeFromTop(48));
     description.setBounds(content.removeFromTop(24));
     content.removeFromTop(8);
@@ -309,6 +321,23 @@ void WorkspaceShell::select(const juce::String& key)
     refresh();
 }
 
+void WorkspaceShell::goBackFromTask()
+{
+    if (!viewKey.startsWith("task:") || !flushEdits()) return;
+    const auto* task = model.findTask(viewKey.substring(5));
+    const auto ownerId = task != nullptr ? task->ownerPageId : juce::String();
+    auto destination = arranger::viewAfterTaskBack(taskReturnView, ownerId);
+    if (destination.startsWith("page:") || destination.startsWith("pageTasks:")
+        || destination.startsWith("pageBlocks:"))
+    {
+        const auto pageId = destination.fromFirstOccurrenceOf(":", false, false);
+        if (!model.findPage(pageId) || arranger::WorkspaceQueries::isArchived(model, pageId))
+            destination = arranger::viewAfterTaskBack({}, ownerId);
+    }
+    select(destination);
+    if (viewKey == destination) taskReturnView.clear();
+}
+
 void WorkspaceShell::showDetails()
 {
     const bool legacy = viewKey == "view:legacy", allTasks = viewKey == "view:tasks",
@@ -326,6 +355,7 @@ void WorkspaceShell::showDetails()
     legacySummary.setVisible(legacy);
     archive.setVisible(archivedView);
     taskDetails->setVisible(taskView);
+    taskBack.setVisible(taskView);
     for (auto* component : std::initializer_list<juce::Component*>{ &title, &breadcrumb, &description }) component->setVisible(true);
     for (auto* button : { &addChild, &rename, &move, &archiveButton }) button->setVisible(false);
     blockEditor.setVisible(showBlocks);
@@ -576,7 +606,12 @@ void WorkspaceShell::archiveTask(const juce::String& id)
 }
 void WorkspaceShell::openTask(arranger::TaskReference ref)
 {
-    if (ref.songId.isEmpty()) { select("task:" + ref.taskId); return; }
+    if (ref.songId.isEmpty())
+    {
+        if (!viewKey.startsWith("task:")) taskReturnView = viewKey;
+        select("task:" + ref.taskId);
+        return;
+    }
     // Legacy tasks remain editable in the local catalog; no external .song or DAW is opened.
     select("view:legacy");
 }

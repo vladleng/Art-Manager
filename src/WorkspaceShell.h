@@ -57,6 +57,7 @@ private:
 
     void select(const juce::String& key);
     void showDetails();
+    void goBackFromTask();
     void showPageMenu(const juce::String&, juce::Point<int>);
     void promptPage(const juce::String& parentId, const juce::String& renameId = {}, bool asNote = false);
     void showMoveMenu(const juce::String&, juce::Point<int>);
@@ -98,11 +99,12 @@ private:
     Execute runCommand;
     std::function<void(juce::String)> persistView;
     juce::String viewKey;
+    juce::String taskReturnView; // Previous non-detail view for Back navigation.
     std::map<juce::String, arranger::TaskViewOptions> taskViews;
     std::function<void(juce::String)> persistTaskViews;
     bool applyingView = false;
     juce::TextEditor searchBox;
-    juce::TextButton filterButton, sortButton, clearButton, calendarToggle;
+    juce::TextButton filterButton, sortButton, clearButton, calendarToggle, taskBack;
     std::function<void(juce::String)> persistCalendarSidebar;
     bool calendarVisible = true;
     int calendarWidth = 340;
