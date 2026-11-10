@@ -17,7 +17,6 @@ public:
     void setTasks(std::vector<arranger::TaskReference>, bool checkpointsOnly = false);
     void setViewOptions(arranger::TaskViewOptions value);
     void setPlanningReferenceDay(juce::String value) { planningReferenceDay = std::move(value); }
-    void setDayPlanningMode(bool enabled) { dayPlanningMode = enabled; }
     void paint(juce::Graphics&) override;
     void paintOverChildren(juce::Graphics&) override;
     void resized() override;
@@ -78,7 +77,6 @@ private:
     std::set<juce::String> expanded;
     bool checkpointsOnly = false;
     bool manualOrder = true;
-    bool dayPlanningMode = false;
     std::set<juce::String> viewExpanded;
     arranger::TaskViewOptions viewOptions;
     mr::Icons icons;
