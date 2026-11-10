@@ -9,26 +9,39 @@ void rowBackground(juce::Graphics& g, int width, int height, bool selected)
 {
     if (selected) { g.setColour(mr::colour(mr::tokens::selected)); g.fillRoundedRectangle(2.0f, 1.0f, static_cast<float>(width - 4), static_cast<float>(height - 2), 5.0f); }
     g.setColour(mr::colour(mr::tokens::bright));
-    g.setFont(juce::FontOptions(15.0f));
+    g.setFont(juce::FontOptions(13.0f));
 }
 }
 
 WorkspaceShell::WorkspaceShell(arranger::WorkspaceModel& data,
     Execute executeCommand, juce::String selectedView, std::function<void(juce::String)> saveView,
     juce::String savedColumns, std::function<void(juce::String)> saveColumns,
-    juce::String savedTaskViews, std::function<void(juce::String)> saveTaskViews, juce::File templateFile)
+    juce::String savedTaskViews, std::function<void(juce::String)> saveTaskViews, juce::File templateFile,
+    juce::String savedCalendarSidebar, std::function<void(juce::String)> saveCalendarSidebar,
+    juce::String savedCalendarFocus, std::function<void(juce::String)> saveCalendarFocus)
     : model(data), templateStore(std::move(templateFile)), runCommand(std::move(executeCommand)),
       persistView(std::move(saveView)), viewKey(std::move(selectedView)),
       persistTaskViews(std::move(saveTaskViews)),
+      persistCalendarSidebar(std::move(saveCalendarSidebar)),
       tasks(model, runCommand, [this] { return flushEdits(); },
           [this](arranger::TaskReference ref) { openTask(ref); }, [this] { refresh(); },
           [this](juce::String id) { archiveTask(id); }, [this] { promptTask(); },
           std::move(savedColumns), std::move(saveColumns))
 {
     setLookAndFeel(&theme);
+    // Default workspace timezone is Asia/Krasnoyarsk (UTC+7, no DST).
+    // Explicit day editing does not depend on the OS timezone.
+    const auto utcMillis = juce::Time::getCurrentTime().toMilliseconds();
+    const auto initialDay = juce::Time(utcMillis + static_cast<juce::int64>(7 * 60 * 60 * 1000))
+        .toISO8601(true).substring(0, 10);
     if (viewKey == "view:daw") viewKey = "view:legacy"; // Upgrade the old persisted tab without changing workspace data.
+    if (viewKey == "view:today") viewKey = "view:tasks"; // One daily view now lives in the right sidebar.
+    const auto sidebarParts = juce::StringArray::fromTokens(savedCalendarSidebar, ",", "");
+    if (sidebarParts.size() >= 1) calendarVisible = sidebarParts[0] != "0";
+    if (sidebarParts.size() >= 2)
+        calendarWidth = juce::jlimit(280, 520, sidebarParts[1].getIntValue());
     brand.setText("Arranger Manager", juce::dontSendNotification);
-    brand.setFont(juce::FontOptions(17.0f, juce::Font::bold));
+    brand.setFont(juce::FontOptions(16.0f, juce::Font::bold));
     title.setFont(juce::FontOptions(24.0f, juce::Font::bold));
     for (auto* label : { &brand, &title, &breadcrumb, &description, &empty })
     {
@@ -36,6 +49,13 @@ WorkspaceShell::WorkspaceShell(arranger::WorkspaceModel& data,
         label->setColour(juce::Label::textColourId, mr::colour(mr::tokens::bright));
     }
     breadcrumb.setColour(juce::Label::textColourId, mr::colour(mr::tokens::muted));
+    addAndMakeVisible(taskBack);
+    taskBack.setButtonText(text("←"));
+    taskBack.setTooltip(text("Назад к предыдущему списку задач"));
+    taskBack.getProperties().set("mrIconOnly", true);
+    taskBack.setColour(juce::TextButton::buttonColourId, mr::colour(mr::tokens::canvas));
+    taskBack.setColour(juce::TextButton::textColourOffId, mr::colour(mr::tokens::bright));
+    taskBack.onClick = [this] { goBackFromTask(); };
     description.setColour(juce::Label::textColourId, mr::colour(mr::tokens::meta));
     addPage.setButtonText(text("+ Страница"));
     addNote.setButtonText(text("+ Заметка"));
@@ -51,12 +71,36 @@ WorkspaceShell::WorkspaceShell(arranger::WorkspaceModel& data,
     for (auto* list : { &nav, &archive })
     {
         addAndMakeVisible(list);
-        list->setRowHeight(list == &nav ? 32 : 36);
+        list->setRowHeight(list == &nav ? 31 : 36);
         list->setColour(juce::ListBox::backgroundColourId, mr::colour(mr::tokens::panel));
         list->setMultipleSelectionEnabled(false);
     }
     addAndMakeVisible(tasks);
     addAndMakeVisible(searchBox);
+    addAndMakeVisible(calendarToggle);
+    calendarToggle.setButtonText(text("▣"));
+    calendarToggle.setTooltip(text("Показать / скрыть календарь справа"));
+    calendarToggle.setColour(juce::TextButton::buttonColourId, mr::colour(mr::tokens::panel));
+    calendarToggle.setColour(juce::TextButton::textColourOffId, mr::colour(mr::tokens::bright));
+    calendarToggle.onClick = [this]
+    {
+        if (!flushEdits()) return;
+        calendarVisible = !calendarVisible;
+        saveCalendarSettings();
+        resized(); repaint();
+    };
+    calendarPanel = std::make_unique<DayCalendarPanel>(model, runCommand,
+        [this] { return flushEdits(); },
+        [this] { refresh(); },
+        [this](arranger::TaskReference ref) { openTask(ref); },
+        [this]
+        {
+            calendarVisible = false;
+            saveCalendarSettings();
+            resized(); repaint();
+        }, std::move(savedCalendarFocus), std::move(saveCalendarFocus));
+    addAndMakeVisible(calendarPanel.get());
+    addAndMakeVisible(calendarSplitter);
     for (auto* button : {&filterButton, &sortButton, &clearButton})
     {
         addAndMakeVisible(button);
@@ -113,6 +157,9 @@ WorkspaceShell::WorkspaceShell(arranger::WorkspaceModel& data,
     rename.onClick = [this] { promptPage({}, selectedPage()); };
     move.onClick = [this] { showMoveMenu(selectedPage(), move.getScreenBounds().getBottomLeft()); };
     archiveButton.onClick = [this] { archivePage(selectedPage()); };
+    // Date updates notify the owning Shell; do this only after all editors
+    // and taskDetails have been initialized to avoid re-entrant refresh.
+    calendarPanel->setDay(initialDay);
     refresh();
 }
 
@@ -129,6 +176,12 @@ void WorkspaceShell::paint(juce::Graphics& g)
     g.fillRect(0, 0, 240, getHeight());
     g.setColour(mr::colour(mr::tokens::outline));
     g.drawVerticalLine(240, 0.0f, static_cast<float>(getHeight()));
+    if (calendarVisible)
+    {
+        const auto x = getWidth() - calendarWidth;
+        g.setColour(mr::colour(mr::tokens::outline));
+        g.drawVerticalLine(x - 4, 0.0f, static_cast<float>(getHeight()));
+    }
 }
 
 void WorkspaceShell::resized()
@@ -137,8 +190,24 @@ void WorkspaceShell::resized()
     addPage.setBounds(12, 54, 104, 30);
     addNote.setBounds(124, 54, 104, 30);
     nav.setBounds(10, 98, 220, juce::jmax(20, getHeight() - 110));
-    auto content = getLocalBounds().withTrimmedLeft(250).reduced(14);
-    breadcrumb.setBounds(content.removeFromTop(28));
+    const int sidebar = calendarVisible ? calendarWidth : 0;
+    calendarPanel->setVisible(calendarVisible);
+    calendarSplitter.setVisible(calendarVisible);
+    if (calendarVisible)
+    {
+        calendarPanel->setBounds(getWidth() - calendarWidth, 0, calendarWidth, getHeight());
+        calendarSplitter.setBounds(getWidth() - calendarWidth - 6, 0, 7, getHeight());
+        calendarSplitter.toFront(false);
+    }
+    calendarToggle.setBounds(getWidth() - sidebar - 45, 12, 31, 29);
+    auto content = getLocalBounds().withTrimmedLeft(250)
+        .withTrimmedRight(sidebar + (calendarVisible ? 6 : 0)).reduced(14);
+    auto topLine = content.removeFromTop(28);
+    if (viewKey.startsWith("task:"))
+        taskBack.setBounds(topLine.removeFromLeft(32).reduced(2));
+    else
+        taskBack.setBounds({});
+    breadcrumb.setBounds(topLine);
     title.setBounds(content.removeFromTop(48));
     description.setBounds(content.removeFromTop(24));
     content.removeFromTop(8);
@@ -188,7 +257,8 @@ void WorkspaceShell::refresh()
     const juce::String oldArchiveId = oldArchiveIndex >= 0 && oldArchiveIndex < static_cast<int>(archived.size())
         ? archived[static_cast<size_t>(oldArchiveIndex)] : juce::String();
     rebuilding = true;
-    navigation = {{"view:tasks", text("Все задачи"), 0}, {"view:legacy", text("Архив песен"), 0}};
+    navigation = {{"view:tasks", text("Все задачи"), 0},
+                  {"view:legacy", text("Архив песен"), 0}};
     const auto globalSearch = viewKey == "view:tasks"
         ? taskViews["view:tasks"].search.trim() : juce::String();
     for (const auto& row : arranger::WorkspaceQueries::activePages(model))
@@ -224,7 +294,9 @@ void WorkspaceShell::refresh()
         std::erase_if(taskReferences, [&](const auto& ref) { return ref.ownerPageId != selectedPage(); });
     else if (viewKey == "view:legacy")
         std::erase_if(taskReferences, [](const auto& ref) { return ref.songId.isEmpty(); });
+    tasks.setPlanningReferenceDay(calendarPanel->selectedDay());
     updateTaskProjection();
+    calendarPanel->refresh();
     archive.updateContent();
     archive.deselectAllRows();
     for (int i = 0; i < static_cast<int>(archived.size()); ++i)
@@ -250,9 +322,27 @@ void WorkspaceShell::select(const juce::String& key)
     refresh();
 }
 
+void WorkspaceShell::goBackFromTask()
+{
+    if (!viewKey.startsWith("task:") || !flushEdits()) return;
+    const auto* task = model.findTask(viewKey.substring(5));
+    const auto ownerId = task != nullptr ? task->ownerPageId : juce::String();
+    auto destination = arranger::viewAfterTaskBack(taskReturnView, ownerId);
+    if (destination.startsWith("page:") || destination.startsWith("pageTasks:")
+        || destination.startsWith("pageBlocks:"))
+    {
+        const auto pageId = destination.fromFirstOccurrenceOf(":", false, false);
+        if (!model.findPage(pageId) || arranger::WorkspaceQueries::isArchived(model, pageId))
+            destination = arranger::viewAfterTaskBack({}, ownerId);
+    }
+    select(destination);
+    if (viewKey == destination) taskReturnView.clear();
+}
+
 void WorkspaceShell::showDetails()
 {
-    const bool legacy = viewKey == "view:legacy", allTasks = viewKey == "view:tasks", archivedView = viewKey == "view:archive";
+    const bool legacy = viewKey == "view:legacy", allTasks = viewKey == "view:tasks",
+        archivedView = viewKey == "view:archive";
     const bool oldBlocks = viewKey.startsWith("pageBlocks:");
     std::optional<arranger::WorkspacePage> page;
     if (const auto* found = model.findPage(selectedPage())) page = *found;
@@ -266,6 +356,7 @@ void WorkspaceShell::showDetails()
     legacySummary.setVisible(legacy);
     archive.setVisible(archivedView);
     taskDetails->setVisible(taskView);
+    taskBack.setVisible(taskView);
     for (auto* component : std::initializer_list<juce::Component*>{ &title, &breadcrumb, &description }) component->setVisible(true);
     for (auto* button : { &addChild, &rename, &move, &archiveButton }) button->setVisible(false);
     blockEditor.setVisible(showBlocks);
@@ -516,7 +607,12 @@ void WorkspaceShell::archiveTask(const juce::String& id)
 }
 void WorkspaceShell::openTask(arranger::TaskReference ref)
 {
-    if (ref.songId.isEmpty()) { select("task:" + ref.taskId); return; }
+    if (ref.songId.isEmpty())
+    {
+        if (!viewKey.startsWith("task:")) taskReturnView = viewKey;
+        select("task:" + ref.taskId);
+        return;
+    }
     // Legacy tasks remain editable in the local catalog; no external .song or DAW is opened.
     select("view:legacy");
 }
@@ -643,7 +739,13 @@ void WorkspaceShell::NavModel::paintListBoxItem(int index, juce::Graphics& g, in
     }
     g.setColour(mr::colour(mr::tokens::bright)); // Drop outline never changes row text.
     const int indent = 10 + juce::jmin(row.depth, 6) * 16;
-    g.drawText(row.title, indent, 0, juce::jmax(0, width - indent - 10), height, juce::Justification::centredLeft, true);
+    const char* symbol = row.key == "view:tasks" ? "manager/actions/checklist"
+        : row.key == "view:legacy" ? "manager/actions/organizer"
+        : row.key.startsWith("page:") ? "manager/actions/organizer"
+        : "manager/actions/expand";
+    owner.navigationIcons.draw(symbol, g, {static_cast<float>(indent), 9.0f, 15.0f, 15.0f});
+    g.drawText(row.title, indent + 24, 0, juce::jmax(0, width - indent - 33),
+        height, juce::Justification::centredLeft, true);
 }
 void WorkspaceShell::NavModel::selectedRowsChanged(int index)
 {
@@ -748,7 +850,8 @@ juce::String WorkspaceShell::taskViewKey() const
 {
     if (viewKey.startsWith("page:") || viewKey.startsWith("pageTasks:") || viewKey.startsWith("pageBlocks:"))
         return "page:" + selectedPage();
-    return viewKey == "view:legacy" ? "view:legacy" : "view:tasks";
+    return viewKey == "view:today" ? "view:today"
+        : viewKey == "view:legacy" ? "view:legacy" : "view:tasks";
 }
 void WorkspaceShell::loadTaskViewSettings(const juce::String& saved)
 {
@@ -761,7 +864,7 @@ void WorkspaceShell::loadTaskViewSettings(const juce::String& saved)
             for (const auto& item : *views)
             {
                 const auto key = item.getProperty("key", {}).toString();
-                if (key == "view:tasks" || key.startsWith("page:"))
+                if (key == "view:tasks" || key == "view:today" || key.startsWith("page:"))
                     taskViews[key] = arranger::decodeTaskView(item.getProperty("options", {}).toString());
             }
     }
@@ -772,7 +875,7 @@ void WorkspaceShell::saveTaskViewSettings()
     auto result = std::make_unique<juce::DynamicObject>();
     juce::Array<juce::var> views;
     for (const auto& [key, options] : taskViews)
-        if (key == "view:tasks" || key.startsWith("page:"))
+        if (key == "view:tasks" || key == "view:today" || key.startsWith("page:"))
         {
             auto item = std::make_unique<juce::DynamicObject>();
             item->setProperty("key", key);
@@ -864,4 +967,32 @@ void WorkspaceShell::showSortMenu()
             safe->saveTaskViewSettings();
             safe->updateTaskProjection();
         });
+}
+
+void WorkspaceShell::saveCalendarSettings()
+{
+    if (persistCalendarSidebar)
+        persistCalendarSidebar(juce::String(calendarVisible ? "1," : "0,")
+            + juce::String(calendarWidth));
+}
+
+void WorkspaceShell::CalendarSplitter::paint(juce::Graphics& g)
+{
+    g.fillAll(mr::colour(mr::tokens::canvas));
+    g.setColour(mr::colour(mr::tokens::outline));
+    g.fillRoundedRectangle(2.0f, static_cast<float>(getHeight() / 2 - 20), 3.0f, 40.0f, 1.5f);
+}
+void WorkspaceShell::CalendarSplitter::mouseDown(const juce::MouseEvent& e)
+{
+    startX = e.getScreenX();
+    startWidth = owner.calendarWidth;
+}
+void WorkspaceShell::CalendarSplitter::mouseDrag(const juce::MouseEvent& e)
+{
+    owner.calendarWidth = juce::jlimit(280, 520, startWidth + startX - e.getScreenX());
+    owner.resized(); owner.repaint();
+}
+void WorkspaceShell::CalendarSplitter::mouseUp(const juce::MouseEvent&)
+{
+    owner.saveCalendarSettings();
 }

@@ -34,12 +34,23 @@ int main()
     task->checkpoints.front().notes = "Checkpoint note";
     task->checkpoints.front().archivedAt = "2026-10-01";
     source.findTask(other)->archivedAt = "2026-10-30";
+    CalendarEvent globalEvent;
+    globalEvent.title = "Concert"; globalEvent.start = "2026-11-10T19:00";
+    globalEvent.end = "2026-11-10T21:00"; globalEvent.notes = "Soundcheck";
+    juce::String globalId;
+    CHECK(commands.createCalendarEvent(globalEvent, globalId).wasOk());
+    CalendarEvent pageEvent;
+    pageEvent.title = "Recording"; pageEvent.start = "2026-11-11";
+    pageEvent.end = "2026-11-11"; pageEvent.allDay = true;
+    pageEvent.ownerPageId = nested;
+    juce::String pageEventId;
+    CHECK(commands.createCalendarEvent(pageEvent, pageEventId).wasOk());
     CHECK(source.validate().wasOk());
 
     juce::String text;
     PortablePreview overview;
     CHECK(WorkspacePortable::makeExport(source, PortableScope::allLocal, {}, text, overview).wasOk());
-    CHECK(overview.pages == 3 && overview.tasks == 3
+    CHECK(overview.pages == 3 && overview.tasks == 3 && overview.events == 2
         && overview.blocks == 3 && overview.checkpoints == 1 && overview.archived == 2);
     PortablePackage imported;
     CHECK(WorkspacePortable::parse(text, imported).wasOk());
@@ -50,6 +61,9 @@ int main()
     const auto targetBefore = target.toJson();
     CHECK(WorkspacePortable::inspect(imported.contents, &target).conflictingIds == 0);
     CHECK(WorkspacePortable::merge(imported, target, PortableImportPolicy::preserveIds).wasOk());
+    CHECK(target.findEvent(globalId) != nullptr
+        && target.findEvent(globalId)->notes == "Soundcheck"
+        && target.findEvent(pageEventId)->ownerPageId == nested);
     CHECK(target.findTask(first)->properties.notes == source.findTask(first)->properties.notes
         && target.findTask(child)->parentTaskId == first
         && target.findTask(first)->checkpoints.front().id == checkpoint
@@ -65,7 +79,11 @@ int main()
     CHECK(WorkspacePortable::merge(imported, target, PortableImportPolicy::preserveIds).failed());
     CHECK(target.toJson() == keptOnce);
     CHECK(WorkspacePortable::merge(imported, target, PortableImportPolicy::createCopies).wasOk());
-    CHECK(target.pages.size() == 6 && target.tasks.size() == 6);
+    CHECK(target.pages.size() == 6 && target.tasks.size() == 6
+        && target.events.size() == 4
+        && target.events[2].id != globalId
+        && target.events[3].id != pageEventId
+        && target.events[3].ownerPageId == target.pages[4].id);
     const auto& copiedRoot = target.pages[3];
     const auto& copiedTask = target.tasks[3];
     const auto& copiedChild = target.tasks[4];
@@ -80,16 +98,21 @@ int main()
 
     juce::String subsetText;
     CHECK(WorkspacePortable::makeExport(source, PortableScope::pageSubtree, nested, subsetText, overview).wasOk());
-    CHECK(overview.pages == 1 && overview.tasks == 1 && overview.blocks == 0);
+    CHECK(overview.pages == 1 && overview.tasks == 1
+        && overview.events == 1 && overview.blocks == 0);
     PortablePackage subtree;
     CHECK(WorkspacePortable::parse(subsetText, subtree).wasOk());
     CHECK(subtree.contents.pages.front().parentPageId.isEmpty()
-        && subtree.contents.tasks.front().id == other);
+        && subtree.contents.tasks.front().id == other
+        && subtree.contents.events.size() == 1
+        && subtree.contents.events.front().ownerPageId == nested);
     CHECK(WorkspacePortable::makeExport(source, PortableScope::taskSubtree, first, subsetText, overview).wasOk());
-    CHECK(overview.pages == 1 && overview.tasks == 2 && overview.checkpoints == 1);
+    CHECK(overview.pages == 1 && overview.tasks == 2
+        && overview.events == 0 && overview.checkpoints == 1);
     CHECK(WorkspacePortable::parse(subsetText, subtree).wasOk());
     CHECK(subtree.contents.pages.front().blocks.empty()
-        && subtree.contents.tasks.front().parentTaskId.isEmpty());
+        && subtree.contents.tasks.front().parentTaskId.isEmpty()
+        && subtree.contents.events.empty());
     CHECK(WorkspacePortable::makeExport(source, PortableScope::pageSubtree, "missing", subsetText, overview).failed());
 
     auto unknown = juce::JSON::parse(text);

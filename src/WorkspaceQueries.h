@@ -130,10 +130,38 @@ struct WorkspaceQueries
         if (const auto* t = task(model, ref)) return t->status;
         return Status::unmarked;
     }
+    // Preserve the original checkpoint-based progress for a task without
+    // nested tasks. The task's own manual status is never inferred from it.
     static std::pair<int, int> taskProgress(const WorkspaceTask& task)
     {
         int done = 0, total = 0;
         for (const auto& cp : task.checkpoints) if (cp.archivedAt.isEmpty()) { ++total; if (cp.status == Status::done) ++done; }
+        return {done, total};
+    }
+
+    // A task tree contains BOTH full nested tasks and older checkpoint leaves.
+    // Count every active descendant task once (DONE is one completed unit) and
+    // each of its active checkpoints, including those on the root. Skip all
+    // archived subtrees. Never use the root's own status to calculate progress.
+    static std::pair<int, int> taskProgress(const WorkspaceModel& model, const WorkspaceTask& root)
+    {
+        auto [done, total] = taskProgress(root);
+        std::set<juce::String> seen {root.id};
+        std::function<void(const WorkspaceTask&)> visit = [&](const WorkspaceTask& parent)
+        {
+            for (const auto& child : model.tasks)
+                if (child.parentTaskId == parent.id && child.ownerPageId == root.ownerPageId
+                    && seen.insert(child.id).second && !taskArchived(model, child.id))
+                {
+                    ++total;
+                    if (child.properties.status == Status::done) ++done;
+                    const auto [checkpointDone, checkpointTotal] = taskProgress(child);
+                    done += checkpointDone;
+                    total += checkpointTotal;
+                    visit(child);
+                }
+        };
+        visit(root);
         return {done, total};
     }
 

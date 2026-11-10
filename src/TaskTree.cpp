@@ -1,4 +1,6 @@
 #include "TaskTree.h"
+#include "TaskProgressMeter.h"
+#include "TaskPlanEditor.h"
 #include "SongNoteKeys.h"
 #include "TaskQuickProperties.h"
 namespace
@@ -13,10 +15,10 @@ int statusId(arranger::Status value)
 }
 struct Columns
 {
-    int name = 126, progress, priority, notes, source, end;
-    Columns(int n, int pr, int p, int nt, int s)
-        : progress(name + n), priority(progress + pr), notes(priority + p),
-          source(notes + nt), end(source + s) {}
+    int name = 126, progress, priority, date, notes, source, end;
+    Columns(int n, int pr, int p, int d, int nt, int s)
+        : progress(name + n), priority(progress + pr), date(priority + p),
+          notes(date + d), source(notes + nt), end(source + s) {}
 };
 void pill(juce::Graphics& g, juce::String caption, juce::Colour colour, int x, int y, int width, bool dot, mr::Icons* icons = nullptr, const char* iconId = nullptr)
 {
@@ -59,16 +61,23 @@ TaskTree::TaskTree(arranger::WorkspaceModel& data, Execute run, std::function<bo
       persistColumns(std::move(persist))
 {
     auto saved = juce::StringArray::fromTokens(savedColumns, ",", "");
-    if (saved.size() == 5)
+    if (saved.size() == 5 || saved.size() == 6)
     {
+        const bool modern = saved.size() == 6;
         const int values[] = {saved[0].getIntValue(), saved[1].getIntValue(), saved[2].getIntValue(),
-            saved[3].getIntValue(), saved[4].getIntValue()};
+            modern ? saved[3].getIntValue() : 150,
+            saved[modern ? 4 : 3].getIntValue(), saved[modern ? 5 : 4].getIntValue()};
         if (values[0] >= 180 && values[0] <= 900 && values[1] >= 110 && values[1] <= 400
-            && values[2] >= 80 && values[2] <= 240 && values[3] >= 160 && values[3] <= 900
-            && values[4] >= 100 && values[4] <= 600)
-            widths = {values[0], values[1], values[2], values[3], values[4]};
+            && values[2] >= 80 && values[2] <= 240 && values[3] >= 100 && values[3] <= 240
+            && values[4] >= 160 && values[4] <= 900 && values[5] >= 100 && values[5] <= 600)
+            widths = {values[0], values[1], values[2], values[3], values[4], values[5]};
     }
     addAndMakeVisible(list); list.setRowHeight(40); list.setMultipleSelectionEnabled(false);
+    // Keep JUCE's native row selection on mouseDown so a *first* press can
+    // become a drag (including to the calendar). Delay only the name-column
+    // action until mouseUp; selection and drag source stay independent.
+    list.setRowSelectedOnMouseDown(true);
+    list.addMouseListener(this, true); // Observe mouseUp/drag from nested JUCE row components.
     resizeColumns();
     list.setColour(juce::ListBox::backgroundColourId, mr::colour(mr::tokens::canvas));
     list.setColour(juce::ListBox::outlineColourId, juce::Colours::transparentBlack);
@@ -121,7 +130,7 @@ void TaskTree::rebuild()
 void TaskTree::paint(juce::Graphics& g)
 {
     g.fillAll(mr::colour(mr::tokens::canvas));
-    const Columns columns(widths.name, widths.progress, widths.priority, widths.notes, widths.source);
+    const Columns columns(widths.name, widths.progress, widths.priority, widths.date, widths.notes, widths.source);
     g.setColour(mr::colour(mr::tokens::outline)); g.drawHorizontalLine(31, 0, static_cast<float>(getWidth()));
     g.setColour(mr::colour(mr::tokens::muted)); g.setFont(juce::FontOptions(12.0f));
     const int scroll = list.getViewport() != nullptr ? list.getViewport()->getViewPositionX() : 0;
@@ -130,9 +139,10 @@ void TaskTree::paint(juce::Graphics& g)
     g.drawText(checkpointsOnly ? tr("Подзадача") : tr("Задача"), columns.name, 0, columns.progress - columns.name, 31, juce::Justification::centredLeft);
     g.drawText(tr("Прогресс"), columns.progress + 12, 0, 135, 31, juce::Justification::centredLeft);
     g.drawText(tr("Приоритет"), columns.priority + 5, 0, 72, 31, juce::Justification::centredLeft);
+    g.drawText(tr("Дата"), columns.date + 9, 0, widths.date - 12, 31, juce::Justification::centredLeft);
     g.drawText(tr("Заметки"), columns.notes + 9, 0, widths.notes - 12, 31, juce::Justification::centredLeft);
     if (!checkpointsOnly) g.drawText(tr("Страница"), columns.source + 9, 0, widths.source - 12, 31, juce::Justification::centredLeft);
-    for (auto boundary : {columns.progress, columns.priority, columns.notes, columns.source, columns.end})
+    for (auto boundary : {columns.progress, columns.priority, columns.date, columns.notes, columns.source, columns.end})
     {
         g.setColour(mr::colour(mr::tokens::outline));
         g.drawVerticalLine(boundary, 0, 31.0f);
@@ -150,7 +160,7 @@ void TaskTree::paintListBoxItem(int index, juce::Graphics& g, int width, int hei
 {
     if (index < 0 || index >= getNumRows()) return;
     const auto& row = rows[static_cast<size_t>(index)];
-    const Columns columns(widths.name, widths.progress, widths.priority, widths.notes, widths.source);
+    const Columns columns(widths.name, widths.progress, widths.priority, widths.date, widths.notes, widths.source);
     if (selected)
     {
         g.setColour(mr::colour(mr::tokens::selected)); g.fillRoundedRectangle(1, 1, static_cast<float>(width - 2), static_cast<float>(height - 2), 5);
@@ -177,7 +187,7 @@ void TaskTree::paintListBoxItem(int index, juce::Graphics& g, int width, int hei
     if (const auto* task = arranger::WorkspaceQueries::generalTask(model, row.reference))
     {
         priority = task->properties.priority;
-        if (row.checkpointId.isEmpty()) { const auto progress = arranger::WorkspaceQueries::taskProgress(*task); done = progress.first; total = progress.second; }
+        if (row.checkpointId.isEmpty()) { const auto progress = arranger::WorkspaceQueries::taskProgress(model, *task); done = progress.first; total = progress.second; }
         else if (const auto* cp = checkpoint(model, row)) { name = cp->name; status = cp->status; }
     }
     else if (const auto* task = arranger::WorkspaceQueries::task(model, row.reference))
@@ -204,12 +214,30 @@ void TaskTree::paintListBoxItem(int index, juce::Graphics& g, int width, int hei
     const int percent = total > 0 ? done * 100 / total : 0;
     g.setFont(juce::FontOptions(12.0f)); g.setColour(mr::colour(mr::tokens::meta));
     g.drawText(juce::String(percent) + "%", columns.progress + 10, 0, 36, height, juce::Justification::centredLeft);
-    g.setColour(mr::colour(mr::tokens::progressBg)); g.fillRoundedRectangle(static_cast<float>(columns.progress + 52), 14, 76, 4, 2);
-    if (percent > 0) { g.setColour(mr::colour(mr::tokens::progressFill)); g.fillRoundedRectangle(static_cast<float>(columns.progress + 52), 14, 76.0f * static_cast<float>(percent) / 100.0f, 4, 2); }
+    mr::paintTaskProgressMeter(g, static_cast<float>(columns.progress + 52), 14.0f, percent);
     if (priority > 0 && row.checkpointId.isEmpty())
     {
         pill(g, "P" + juce::String(priority), mr::priorityFill(priority), columns.priority + 12, 6, 30, false);
     }
+    if (row.checkpointId.isEmpty())
+        if (const auto* task = arranger::WorkspaceQueries::generalTask(model, row.reference))
+        {
+            juce::String dateCaption;
+            if (task->plan.start.isNotEmpty())
+            {
+                dateCaption = task->plan.start.substring(0, 10);
+                if (task->plan.end.isNotEmpty()
+                    && task->plan.end.substring(0, 10) != dateCaption)
+                    dateCaption += " – " + task->plan.end.substring(5, 10);
+            }
+            else if (task->plan.deadline.isNotEmpty())
+                dateCaption = tr("до ") + task->plan.deadline.substring(0, 10);
+            g.setColour(mr::colour(dateCaption.isEmpty() ? mr::tokens::muted : mr::tokens::bright));
+            g.setFont(juce::FontOptions(12.0f));
+            g.drawFittedText(dateCaption.isEmpty() ? tr("+ Дата") : dateCaption,
+                columns.date + 8, 3, widths.date - 15, height - 6,
+                juce::Justification::centredLeft, 1, 0.85f);
+        }
     const auto caption = note(model, row);
     g.setColour(mr::colour(caption.isEmpty() ? mr::tokens::muted : mr::tokens::bright));
     g.setFont(juce::FontOptions(12.0f));
@@ -237,12 +265,12 @@ void TaskTree::listBoxItemClicked(int index, const juce::MouseEvent& event)
     if (index < 0 || index >= getNumRows()) return;
     const auto row = rows[static_cast<size_t>(index)];
     if (flush().failed()) return;
-    const Columns columns(widths.name, widths.progress, widths.priority, widths.notes, widths.source);
+    const Columns columns(widths.name, widths.progress, widths.priority, widths.date, widths.notes, widths.source);
     if (event.mods.isPopupMenu()) { if (row.addChild) beginInline(row); else showMenu(row, event.getScreenPosition()); return; }
     if (row.addChild) { beginInline(row); return; }
     if (event.x < 22 + row.depth * 14) { for (int i = 0; i < getNumRows(); ++i) if (rows[static_cast<size_t>(i)].key() == row.key()) { toggle(i); break; } return; }
     if (event.x < columns.name) { statusMenu(row,event.getScreenPosition()); return; }
-    if (event.x >= columns.priority && event.x < columns.notes && row.checkpointId.isEmpty())
+    if (event.x >= columns.priority && event.x < columns.date && row.checkpointId.isEmpty())
     {
         if (const auto* task = arranger::WorkspaceQueries::generalTask(model,row.reference))
         {
@@ -260,28 +288,50 @@ void TaskTree::listBoxItemClicked(int index, const juce::MouseEvent& event)
         }
         return;
     }
+    if (event.x >= columns.date && event.x < columns.notes && row.checkpointId.isEmpty()
+        && arranger::WorkspaceQueries::generalTask(model, row.reference))
+    {
+        if (event.getNumberOfClicks() == 1) showPlan(row.reference, event.getScreenPosition());
+        return;
+    }
     const int nameX = columns.name + row.depth * 14;
     if (event.x >= nameX && event.x < columns.progress)
     {
-        if (event.getNumberOfClicks() > 1) return; // First click already opened the editor.
-        if (arranger::WorkspaceQueries::generalTask(model, row.reference))
+        if (event.getNumberOfClicks() > 1) return;
+        // JUCE's ListBox invokes this callback on mouseDown for a newly
+        // selected row. Opening a CallOutBox there cancels the pending drag.
+        // An ordinary click is instead committed when the row receives
+        // mouseUp, provided the pointer stayed on that same task.
+        if (event.mods.isLeftButtonDown())
         {
-            // A normal left click on the task name opens a small anchored editor,
-            // never the redundant full-page TaskDetails view.
-            if (row.checkpointId.isEmpty())
-                editTask(row.reference, event.getScreenPosition());
-            else if (event.x >= nameX + 18) // The checkpoint leaf glyph remains inert.
-                editCheckpoint(row.reference, row.checkpointId, event.getScreenPosition());
+            pendingNameClick = PendingNameClick {row, index, event.x, event.getScreenPosition()};
+            return;
         }
-        else if (row.checkpointId.isEmpty() && event.x < nameX + 18 && open)
-            open(row.reference); // Legacy archive remains accessible without Studio Pro.
+        // Already-selected rows are dispatched by JUCE on mouseUp.
+        pendingNameClick.reset();
+        activateNameClick(row, event.x, event.getScreenPosition());
     }
 }
+void TaskTree::activateNameClick(arranger::TaskTreeRow row, int localX,
+    juce::Point<int> screenPosition)
+{
+    const int nameX = widths.name + row.depth * 14;
+    if (arranger::WorkspaceQueries::generalTask(model, row.reference))
+    {
+        if (row.checkpointId.isEmpty())
+            editTask(row.reference, screenPosition);
+        else if (localX >= nameX + 18)
+            editCheckpoint(row.reference, row.checkpointId, screenPosition);
+    }
+    else if (row.checkpointId.isEmpty() && localX < nameX + 18 && open)
+        open(row.reference);
+}
+
 void TaskTree::listBoxItemDoubleClicked(int index, const juce::MouseEvent& event)
 {
     if (event.mods.isPopupMenu() || index < 0 || index >= getNumRows()) return;
     auto row = rows[static_cast<size_t>(index)];
-    const Columns columns(widths.name, widths.progress, widths.priority, widths.notes, widths.source);
+    const Columns columns(widths.name, widths.progress, widths.priority, widths.date, widths.notes, widths.source);
     if (!row.addChild && event.x >= columns.notes && event.x < columns.source)
     {
         row.notes = true;
@@ -298,13 +348,16 @@ void TaskTree::returnKeyPressed(int index) { if (index >= 0 && index < getNumRow
 void TaskTree::backgroundClicked(const juce::MouseEvent& event) { if (event.mods.isPopupMenu()) showBackgroundMenu(event.getScreenPosition()); }
 void TaskTree::mouseDown(const juce::MouseEvent& event)
 {
+    // Nested ListBox rows notify us as a MouseListener; their coordinates are
+    // *not* the TaskTree header coordinates used for column resizing.
+    if (event.eventComponent != this) return;
     if (event.y < 32 && event.mods.isLeftButtonDown())
     {
         resizingColumn = headerDividerAt(event.x);
         if (resizingColumn >= 0)
         {
             resizeStartX = event.x;
-            const int values[] = {widths.name, widths.progress, widths.priority, widths.notes, widths.source};
+            const int values[] = {widths.name, widths.progress, widths.priority, widths.date, widths.notes, widths.source};
             resizeStartWidth = values[resizingColumn];
             return;
         }
@@ -313,17 +366,36 @@ void TaskTree::mouseDown(const juce::MouseEvent& event)
 }
 void TaskTree::mouseDrag(const juce::MouseEvent& event)
 {
-    if (resizingColumn < 0) return;
-    int* values[] = {&widths.name, &widths.progress, &widths.priority, &widths.notes, &widths.source};
-    const int minimum[] = {180, 110, 80, 160, 100};
-    const int maximum[] = {900, 400, 240, 900, 600};
+    if (pendingNameClick && event.getScreenPosition()
+            .getDistanceFrom(pendingNameClick->pressScreen) >= 6)
+        pendingNameClick.reset(); // Started dragging: never open the editor.
+    if (event.eventComponent != this || resizingColumn < 0) return;
+    int* values[] = {&widths.name, &widths.progress, &widths.priority, &widths.date, &widths.notes, &widths.source};
+    const int minimum[] = {180, 110, 80, 100, 160, 100};
+    const int maximum[] = {900, 400, 240, 240, 900, 600};
     *values[resizingColumn] = juce::jlimit(minimum[resizingColumn], maximum[resizingColumn],
         resizeStartWidth + event.x - resizeStartX);
     resizeColumns();
     positionInline();
 }
-void TaskTree::mouseUp(const juce::MouseEvent&)
+void TaskTree::mouseUp(const juce::MouseEvent& event)
 {
+    // The ListBox's built-in row component handles the actual DnD. We only
+    // commit a name click if the same row was released without a drag.
+    if (pendingNameClick)
+    {
+        const auto pending = *pendingNameClick;
+        pendingNameClick.reset();
+        const auto onList = event.getEventRelativeTo(&list).getPosition();
+        const int releasedIndex = list.getRowContainingPosition(onList.x, onList.y);
+        if (!event.mods.isPopupMenu()
+            && event.getScreenPosition().getDistanceFrom(pending.pressScreen) < 6
+            && releasedIndex == pending.rowIndex
+            && releasedIndex >= 0 && releasedIndex < getNumRows()
+            && rows[static_cast<size_t>(releasedIndex)].key() == pending.row.key())
+            activateNameClick(pending.row, pending.localX, event.getScreenPosition());
+    }
+    if (event.eventComponent != this) return;
     if (resizingColumn >= 0)
     {
         resizingColumn = -1;
@@ -332,12 +404,14 @@ void TaskTree::mouseUp(const juce::MouseEvent&)
 }
 void TaskTree::mouseMove(const juce::MouseEvent& event)
 {
+    if (event.eventComponent != this) return; // Child-row hover is not a header-resize gesture.
     setMouseCursor(event.y < 32 && headerDividerAt(event.x) >= 0
         ? juce::MouseCursor::LeftRightResizeCursor : juce::MouseCursor::NormalCursor);
 }
-void TaskTree::mouseExit(const juce::MouseEvent&)
+void TaskTree::mouseExit(const juce::MouseEvent& event)
 {
-    if (resizingColumn < 0) setMouseCursor(juce::MouseCursor::NormalCursor);
+    if (event.eventComponent == this && resizingColumn < 0)
+        setMouseCursor(juce::MouseCursor::NormalCursor);
 }
 void TaskTree::showTaskMenu(const arranger::TaskReference& ref, juce::Point<int> position) { showMenu({ref, {}, false, 0}, position); }
 void TaskTree::showBackgroundMenu(juce::Point<int> position)
@@ -368,6 +442,8 @@ void TaskTree::showMenu(arranger::TaskTreeRow row, juce::Point<int> position)
     {
         if (saveAsTemplate && row.checkpointId.isEmpty()) menu.addItem(6, tr("Сохранить как шаблон…"));
         if (exportTask && row.checkpointId.isEmpty()) menu.addItem(7, tr("Экспортировать задачу с подзадачами…"));
+        if (row.checkpointId.isEmpty())
+            menu.addItem(8, tr("Запланировать / изменить сроки…"));
         juce::PopupMenu statusMenu;
         const auto currentStatus = cp ? cp->status : task->properties.status;
         for (int i = 0; i < 7; ++i) statusMenu.addItem(20 + i, arranger::label(statuses[i]), true, statuses[i] == currentStatus);
@@ -389,7 +465,7 @@ void TaskTree::showMenu(arranger::TaskTreeRow row, juce::Point<int> position)
     if (task) for (const auto& item : task->checkpoints) if (item.archivedAt.isNotEmpty()) archivedIds.push_back(item.id);
     juce::Component::SafePointer<TaskTree> safe(this);
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this).withTargetScreenArea({position.x, position.y, 1, 1}),
-        [safe, row, archivedIds](int item)
+        [safe, row, archivedIds, position](int item)
         {
             if (safe == nullptr || item == 0) return;
             const auto ref = row.reference;
@@ -398,6 +474,7 @@ void TaskTree::showMenu(arranger::TaskTreeRow row, juce::Point<int> position)
             if (item == 5) { if (safe->create) safe->create(); return; }
             if (item == 6) { if (safe->saveAsTemplate) safe->saveAsTemplate(ref); return; }
             if (item == 7) { if (safe->exportTask) safe->exportTask(ref); return; }
+            if (item == 8) { safe->showPlan(ref, position); return; }
             if (item == 4 && row.checkpointId.isEmpty()) { if (safe->archive) safe->archive(ref.taskId); return; }
             // Resolve fresh values after pending editor fields have been flushed. No model pointers survive a menu.
             if (safe->before && !safe->before()) return;
@@ -426,6 +503,29 @@ void TaskTree::showMenu(arranger::TaskTreeRow row, juce::Point<int> position)
             }
         });
 }
+void TaskTree::showPlan(arranger::TaskReference ref, juce::Point<int> position)
+{
+    if (flush().failed() || (before && !before())) return;
+    const auto* task = arranger::WorkspaceQueries::generalTask(model, ref);
+    if (!task) return;
+    const auto expected = task->plan;
+    juce::Component::SafePointer<TaskTree> safe(this);
+    auto panel = std::make_unique<TaskPlanEditor>(expected, planningReferenceDay, [safe, ref, expected](arranger::TaskPlan next)
+    {
+        if (!safe) return juce::Result::fail("Task view was closed.");
+        const auto result = safe->execute([&](arranger::WorkspaceCommands& cmd)
+            { return cmd.updateTaskPlan(ref.taskId, expected, next); });
+        if (result.wasOk())
+        {
+            safe->rebuild();
+            if (safe->changed) safe->changed();
+        }
+        return result;
+    });
+    juce::CallOutBox::launchAsynchronously(std::move(panel),
+        {position.x, position.y, 1, 1}, nullptr);
+}
+
 void TaskTree::editTask(arranger::TaskReference ref, juce::Point<int> position)
 {
     if (flush().failed() || (before && !before())) return;
@@ -508,7 +608,7 @@ void TaskTree::positionInline()
         if (row.reference.taskId != editing->reference.taskId
             || row.reference.ownerPageId != editing->reference.ownerPageId
             || row.checkpointId != editing->checkpointId || row.addChild != editing->addChild) continue;
-        const Columns columns(widths.name, widths.progress, widths.priority, widths.notes, widths.source);
+        const Columns columns(widths.name, widths.progress, widths.priority, widths.date, widths.notes, widths.source);
         auto bounds = list.getRowPosition(i, true).translated(list.getX(), list.getY());
         if (editing->notes)
         {
@@ -585,26 +685,28 @@ void TaskTree::statusMenu(arranger::TaskTreeRow row, juce::Point<int> position)
 juce::String TaskTree::columnSettings() const
 {
     return juce::String(widths.name) + "," + juce::String(widths.progress) + ","
-        + juce::String(widths.priority) + "," + juce::String(widths.notes) + ","
-        + juce::String(widths.source);
+        + juce::String(widths.priority) + "," + juce::String(widths.date) + ","
+        + juce::String(widths.notes) + "," + juce::String(widths.source);
 }
 void TaskTree::resizeColumns()
 {
-    const Columns columns(widths.name, widths.progress, widths.priority, widths.notes, widths.source);
+    const Columns columns(widths.name, widths.progress, widths.priority, widths.date, widths.notes, widths.source);
     list.setMinimumContentWidth(columns.end);
     list.repaint(); repaint();
 }
 int TaskTree::headerDividerAt(int x) const
 {
-    const Columns columns(widths.name, widths.progress, widths.priority, widths.notes, widths.source);
+    const Columns columns(widths.name, widths.progress, widths.priority, widths.date, widths.notes, widths.source);
     const auto scroll = list.getViewport() ? list.getViewport()->getViewPositionX() : 0;
-    const int boundaries[] = {columns.progress, columns.priority, columns.notes, columns.source, columns.end};
-    for (int i = 0; i < 5; ++i) if (std::abs(x + scroll - boundaries[i]) < 7) return i;
+    const int boundaries[] = {columns.progress, columns.priority, columns.date, columns.notes, columns.source, columns.end};
+    for (int i = 0; i < 6; ++i) if (std::abs(x + scroll - boundaries[i]) < 7) return i;
     return -1;
 }
 juce::var TaskTree::getDragSourceDescription(const juce::SparseSet<int>& selected)
 {
-    if (!manualOrder || selected.size() != 1 || editing) return {};
+    // External drag to the calendar must work even in sorted list views.
+    // Only reordering *inside* TaskTree remains restricted to manual sort.
+    if (selected.size() != 1 || editing) return {};
     const auto index = selected.getRange(0).getStart();
     if (index < 0 || index >= getNumRows()) return {};
     const auto row = rows[static_cast<size_t>(index)];
@@ -612,7 +714,12 @@ juce::var TaskTree::getDragSourceDescription(const juce::SparseSet<int>& selecte
     const auto* parent = arranger::WorkspaceQueries::generalTask(model, row.reference);
     if (!parent || arranger::WorkspaceQueries::taskArchived(model, parent->id)) return {};
     if (row.checkpointId.isNotEmpty())
+    {
+        if (!manualOrder) return {};
+        pendingNameClick.reset(); // The native ListBox drag has started.
         return "manager-checkpoint|" + parent->id + "|" + row.checkpointId;
+    }
+    pendingNameClick.reset(); // Never invoke a deferred click after JUCE starts DnD.
     return "manager-task|" + parent->id + "|" + parent->ownerPageId + "|"
         + (parent->parentTaskId.isEmpty() ? juce::String("root") : parent->parentTaskId);
 }

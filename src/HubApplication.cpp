@@ -13,7 +13,9 @@ public:
         WorkspaceShell::Execute execute, juce::String selectedView,
         std::function<void(juce::String)> persistView,
         juce::String savedColumns, std::function<void(juce::String)> persistColumns,
-        juce::String savedTaskViews, std::function<void(juce::String)> persistTaskViews, juce::File templateFile)
+        juce::String savedTaskViews, std::function<void(juce::String)> persistTaskViews, juce::File templateFile,
+        juce::String savedCalendarSidebar, std::function<void(juce::String)> persistCalendarSidebar,
+        juce::String savedCalendarFocus, std::function<void(juce::String)> persistCalendarFocus)
         : juce::DocumentWindow("Arranger Manager " + juce::String(ARRANGER_MANAGER_VERSION), mr::ManagerTheme::titleBarColour(),
               juce::DocumentWindow::allButtons), workspaceAction(std::move(action))
     {
@@ -29,7 +31,9 @@ public:
         setContentOwned(new WorkspaceShell(workspace, std::move(execute),
             std::move(selectedView), std::move(persistView), std::move(savedColumns),
             std::move(persistColumns), std::move(savedTaskViews),
-            std::move(persistTaskViews), std::move(templateFile)), true);
+            std::move(persistTaskViews), std::move(templateFile),
+            std::move(savedCalendarSidebar), std::move(persistCalendarSidebar),
+            std::move(savedCalendarFocus), std::move(persistCalendarFocus)), true);
         setResizable(true, false);
         setResizeLimits(1240, 760, 2300, 1600);
         centreWithSize(1480, 900);
@@ -204,7 +208,7 @@ private:
                 {
                     juce::NativeMessageBox::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
                         "Workspace storage", "Version: " + juce::String(ARRANGER_MANAGER_VERSION) + "\nWorkspace ID: " + workspace.id
-                            + "\nSchema: 2\nRevision: " + juce::String(workspace.revision)
+                            + "\nSchema: 3\nRevision: " + juce::String(workspace.revision)
                             + "\nSongs: " + juce::String(static_cast<int>(workspace.catalog.songs.size()))
                             + "\nPages: " + juce::String(static_cast<int>(workspace.pages.size()))
                             + "\nFile: " + store->getFile().getFullPathName()
@@ -284,7 +288,25 @@ private:
                     user->setValue("taskViewOptions", json);
                     user->saveIfNeeded();
                 }
-            }, store->getFile().getSiblingFile("Art Manager.templates.json"));
+            }, store->getFile().getSiblingFile("Art Manager.templates.json"),
+            settings.getUserSettings()->getValue("calendarSidebar", "1,340"),
+            [this](juce::String value)
+            {
+                if (auto* user = settings.getUserSettings())
+                {
+                    user->setValue("calendarSidebar", value);
+                    user->saveIfNeeded();
+                }
+            },
+            settings.getUserSettings()->getValue("calendarFocus-" + workspace.id),
+            [this](juce::String value)
+            {
+                if (auto* user = settings.getUserSettings())
+                {
+                    user->setValue("calendarFocus-" + workspace.id, value);
+                    user->saveIfNeeded();
+                }
+            });
     }
 
     juce::ApplicationProperties settings;

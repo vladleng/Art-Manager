@@ -42,7 +42,19 @@ int main()
         || !check(viewAfterTaskCreation("page:" + root, root) == "pageTasks:" + root,
             "Creating while blocks are visible must show the tasks")
         || !check(viewAfterTaskCreation("task:previous", root) == "pageTasks:" + root,
-            "Task creation must never open a full-page task detail")) return 1;
+            "Task creation must never open a full-page task detail")
+        || !check(viewAfterTaskBack("view:tasks", root) == "view:tasks",
+            "Back from task must restore the all-tasks list")
+        || !check(viewAfterTaskBack("page:" + child, root) == "page:" + child,
+            "Back must restore the original page")
+        || !check(viewAfterTaskBack("pageTasks:" + other, root) == "pageTasks:" + other,
+            "Back must restore even a different previous project")
+        || !check(viewAfterTaskBack("task:other", root) == "pageTasks:" + root,
+            "Back must not loop between task details")
+        || !check(viewAfterTaskBack({}, root) == "pageTasks:" + root,
+            "Restored task details need an owner-page fallback")
+        || !check(viewAfterTaskBack({}, {}) == "view:tasks",
+            "Back without an owner must return to all tasks")) return 1;
     model.findPage(child)->blocks.push_back({"kept-block", "text", "Text", {}, false});
     const auto original = model.toJson();
     const auto childId = child;

@@ -5,6 +5,8 @@
 #include "BlockEditor.h"
 #include "TaskDetails.h"
 #include "WorkspaceTaskViews.h"
+#include "TodayPlanning.h"
+#include "DayCalendarPanel.h"
 #include "WorkspaceTemplateEditor.h"
 #include <map>
 
@@ -17,7 +19,11 @@ public:
         juce::String selectedView, std::function<void(juce::String)> saveView,
         juce::String savedColumns = {}, std::function<void(juce::String)> saveColumns = {},
         juce::String savedTaskViews = {}, std::function<void(juce::String)> saveTaskViews = {},
-        juce::File templateFile = {});
+        juce::File templateFile = {},
+        juce::String savedCalendarSidebar = {},
+        std::function<void(juce::String)> saveCalendarSidebar = {},
+        juce::String savedCalendarFocus = {},
+        std::function<void(juce::String)> saveCalendarFocus = {});
     ~WorkspaceShell() override;
     void paint(juce::Graphics&) override;
     void resized() override;
@@ -53,6 +59,7 @@ private:
 
     void select(const juce::String& key);
     void showDetails();
+    void goBackFromTask();
     void showPageMenu(const juce::String&, juce::Point<int>);
     void promptPage(const juce::String& parentId, const juce::String& renameId = {}, bool asNote = false);
     void showMoveMenu(const juce::String&, juce::Point<int>);
@@ -74,6 +81,18 @@ private:
     void updateTaskProjection();
     void showFilterMenu();
     void showSortMenu();
+    void saveCalendarSettings();
+    struct CalendarSplitter final : juce::Component
+    {
+        explicit CalendarSplitter(WorkspaceShell& shell) : owner(shell)
+            { setMouseCursor(juce::MouseCursor::LeftRightResizeCursor); }
+        void paint(juce::Graphics&) override;
+        void mouseDown(const juce::MouseEvent&) override;
+        void mouseDrag(const juce::MouseEvent&) override;
+        void mouseUp(const juce::MouseEvent&) override;
+        WorkspaceShell& owner;
+        int startX = 0, startWidth = 0;
+    };
 
     mr::ManagerTheme theme;
     arranger::WorkspaceModel& model;
@@ -82,11 +101,18 @@ private:
     Execute runCommand;
     std::function<void(juce::String)> persistView;
     juce::String viewKey;
+    juce::String taskReturnView; // Previous non-detail view for Back navigation.
     std::map<juce::String, arranger::TaskViewOptions> taskViews;
     std::function<void(juce::String)> persistTaskViews;
     bool applyingView = false;
     juce::TextEditor searchBox;
-    juce::TextButton filterButton, sortButton, clearButton;
+    juce::TextButton filterButton, sortButton, clearButton, calendarToggle, taskBack;
+    std::function<void(juce::String)> persistCalendarSidebar;
+    bool calendarVisible = true;
+    int calendarWidth = 340;
+    CalendarSplitter calendarSplitter {*this};
+    std::unique_ptr<DayCalendarPanel> calendarPanel;
+    mr::Icons navigationIcons;
     bool rebuilding = false;
     juce::String dropPageId;
     juce::String dropPageAt(juce::Point<int>) const;

@@ -118,6 +118,31 @@ int main()
     }
     REQUIRE(foundChild && foundGrandchild, "Nested task tree projection lost the parent chain");
 
+    // Regression #38: before the fix the progress meter only counted old
+    // checkpoints and stayed at 0% when a nested task became DONE.
+    const auto progress = [&]() {
+        return WorkspaceQueries::taskProgress(model, *model.findTask(one));
+    };
+    REQUIRE(progress() == std::make_pair(0, 5),
+        "Progress must count 3 nested tasks and 2 legacy checkpoints");
+    REQUIRE(controller.execute([&](WorkspaceCommands& cmd) {
+        return cmd.setReferenceStatus({{}, pageB, grandchild}, {}, Status::done);
+    }).wasOk(), "Complete grandchild task");
+    REQUIRE(progress() == std::make_pair(1, 5)
+        && WorkspaceQueries::taskProgress(model, *model.findTask(child)) == std::make_pair(1, 1),
+        "Nested DONE failed to advance parent and grandparent progress");
+    REQUIRE(controller.execute([&](WorkspaceCommands& cmd) {
+        return cmd.setReferenceStatus({{}, pageB, one}, firstCp, Status::done);
+    }).wasOk(), "Complete legacy checkpoint");
+    REQUIRE(progress() == std::make_pair(2, 5),
+        "Legacy checkpoint progress must remain available alongside nested tasks");
+    REQUIRE(controller.execute([&](WorkspaceCommands& cmd) {
+        return cmd.setReferenceStatus({{}, pageB, one}, {}, Status::done);
+    }).wasOk() && progress() == std::make_pair(2, 5),
+        "Parent manual DONE must not silently replace derived progress");
+    REQUIRE(controller.undoLast().wasOk() && progress() == std::make_pair(2, 5),
+        "Undo task status must not corrupt progress");
+
     const auto beforeFailed = model.toJson();
     REQUIRE(controller.execute([&](WorkspaceCommands& cmd) {
         return cmd.moveTask(one, pageB, {}, pageB, grandchild);
@@ -136,6 +161,8 @@ int main()
         return cmd.archiveTask(child);
     }).wasOk(), "Archive parent task");
     REQUIRE(WorkspaceQueries::taskArchived(model, grandchild), "Archived ancestor did not hide descendants");
+    REQUIRE(progress() == std::make_pair(1, 3),
+        "Archived nested subtree must be excluded without hiding root checkpoints");
     REQUIRE(controller.execute([&](WorkspaceCommands& cmd) {
         return cmd.createSubtask(grandchild, "Nope", deep);
     }).failed(), "Archived ancestor still accepted new descendants");
@@ -143,6 +170,8 @@ int main()
         return cmd.restoreTask(child);
     }).wasOk(), "Restore parent task");
     REQUIRE(!WorkspaceQueries::taskArchived(model, grandchild), "Restore lost descendant");
+    REQUIRE(progress() == std::make_pair(2, 5),
+        "Restore must return nested tasks to progress calculation");
 
     // At most eight parent edges; the ninth must fail without changing JSON.
     auto previous = grandchild;
