@@ -41,7 +41,7 @@ int main()
     WorkspaceStore store(file); WorkspaceModel model;
     REQUIRE(store.load("invalid stale settings", {}, model).wasOk(), "Schema 1 migration");
     REQUIRE(store.schemaOneFile().loadFileAsString() == source && store.backupFile().loadFileAsString() == source, "Exact schema 1 backup");
-    REQUIRE(static_cast<int>(juce::JSON::parse(file.loadFileAsString()).getProperty("schemaVersion", 0)) == 2, "Schema 2 not written");
+    REQUIRE(static_cast<int>(juce::JSON::parse(file.loadFileAsString()).getProperty("schemaVersion", 0)) == 3, "Schema 3 not written");
     REQUIRE(!missingSong.existsAsFile() && model.catalog.songs[0].id == old.catalog.songs[0].id
         && model.catalog.songs[0].pageId == old.catalog.songs[0].pageId
         && model.catalog.songs[0].status == Status::wip
