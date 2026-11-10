@@ -17,7 +17,8 @@ WorkspaceShell::WorkspaceShell(arranger::WorkspaceModel& data,
     Execute executeCommand, juce::String selectedView, std::function<void(juce::String)> saveView,
     juce::String savedColumns, std::function<void(juce::String)> saveColumns,
     juce::String savedTaskViews, std::function<void(juce::String)> saveTaskViews, juce::File templateFile,
-    juce::String savedCalendarSidebar, std::function<void(juce::String)> saveCalendarSidebar)
+    juce::String savedCalendarSidebar, std::function<void(juce::String)> saveCalendarSidebar,
+    juce::String savedCalendarFocus, std::function<void(juce::String)> saveCalendarFocus)
     : model(data), templateStore(std::move(templateFile)), runCommand(std::move(executeCommand)),
       persistView(std::move(saveView)), viewKey(std::move(selectedView)),
       persistTaskViews(std::move(saveTaskViews)),
@@ -97,7 +98,7 @@ WorkspaceShell::WorkspaceShell(arranger::WorkspaceModel& data,
             calendarVisible = false;
             saveCalendarSettings();
             resized(); repaint();
-        });
+        }, std::move(savedCalendarFocus), std::move(saveCalendarFocus));
     addAndMakeVisible(calendarPanel.get());
     addAndMakeVisible(calendarSplitter);
     for (auto* button : {&filterButton, &sortButton, &clearButton})
