@@ -31,7 +31,7 @@ WorkspaceShell::WorkspaceShell(arranger::WorkspaceModel& data,
     // Default workspace timezone is Asia/Krasnoyarsk (UTC+7, no DST).
     // Explicit day editing does not depend on the OS timezone.
     const auto utcMillis = juce::Time::getCurrentTime().toMilliseconds();
-    todayDay = juce::Time(utcMillis + static_cast<juce::int64>(7 * 60 * 60 * 1000))
+    const auto initialDay = juce::Time(utcMillis + static_cast<juce::int64>(7 * 60 * 60 * 1000))
         .toISO8601(true).substring(0, 10);
     if (viewKey == "view:daw") viewKey = "view:legacy"; // Upgrade the old persisted tab without changing workspace data.
     if (viewKey == "view:today") viewKey = "view:tasks"; // One daily view now lives in the right sidebar.
@@ -92,7 +92,7 @@ WorkspaceShell::WorkspaceShell(arranger::WorkspaceModel& data,
             resized(); repaint();
         });
     addAndMakeVisible(calendarPanel.get());
-    calendarPanel->setDay(todayDay);
+    calendarPanel->setDay(initialDay);
     addAndMakeVisible(calendarSplitter);
     for (auto* button : {&filterButton, &sortButton, &clearButton})
     {
