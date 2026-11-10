@@ -62,7 +62,7 @@ jobs:
           }
           # Resolve preview sources before writing to the package; never enumerate
           # the destination while copying (Copy-Item cannot copy a file to itself).
-          foreach ($name in @('template-editor.png', 'template-create.png', 'task-properties.png', 'subtask-properties.png', 'task-calendar.png')) {
+          foreach ($name in @('template-editor.png', 'template-create.png', 'task-properties.png', 'subtask-properties.png', 'task-calendar.png', 'calendar-sidebar.png')) {
             $source = Get-Item -LiteralPath $name -ErrorAction SilentlyContinue
             if ($null -eq $source) { $source = Get-Item -LiteralPath "build/$name" -ErrorAction SilentlyContinue }
             if ($null -ne $source) { Copy-Item -LiteralPath $source.FullName -Destination $packageDir -Force }
