@@ -1,3 +1,15 @@
+## 0.3.1-Upd2-fix2 — первый захват задачи не должен открывать свойства
+
+Пользователь подтвердил работу `0.3.1-Upd2-fix1` ([Windows #154](https://github.com/vladleng/Art-Manager/actions/runs/42764611458), SUCCESS), но при первом нажатии/удержании для drag задачи или вложенной задачи открывалось окно свойств.
+
+**Причина:** исходный `TaskTree` использует JUCE 9.0.2 `ListBox` со значением по умолчанию `setRowSelectedOnMouseDown(true)`. Для новой строки `RowComponent::mouseDown` сразу вызывает `listBoxItemClicked` и открывает `TaskQuickProperties` до drag threshold. Исправление точечное: `TaskTree::TaskTree` вызывает `list.setRowSelectedOnMouseDown(false)`; JUCE теперь выбирает строку и вызывает click **только на mouseUp**, если `mouseDrag` не запустил DnD. Существующие click/меню, Notes и обычное открытие карточки не меняются.
+
+**Регрессия:** `TaskTreeUiTests` проверяет настройку ListBox, реальный `mouseDown` на впервые выбранной строке без клика/раскрытия, затем реальный `mouseUp` с ожидаемым раскрытием. Этот тест не проходил бы при прежнем значении по умолчанию. Настройка одинаковая для задач и вложенных задач.
+
+Точная версия `0.3.1-Upd2-fix2` синхронизирована в приложении, Windows workflow, manifest и artifact; **до Windows PASS и ручной приёмки этот fix2 не считается принятым**. Никакого merge в main, schema3 и #39 не меняются.
+
+---
+
 ## 0.3.1-Upd2-fix1 — Windows #153: C2666 в проверке версии UI-настроек
 
 Первый билд кандидата `0.3.1-Upd2`, [Windows Actions #153](https://github.com/vladleng/Art-Manager/actions/runs/42763902554), завершился **FAIL** на Build tests. Ошибка MSVC **C2666** в `DayFocusSettings.h`: неоднозначный `juce::var != int` при чтении версии локальных настроек фокуса. Проверка заменена на `version.isInt()` и явное `static_cast<int>(version) != 1`. Доменная логика и UI не изменены. Синхронизирована новая точная версия `0.3.1-Upd2-fix1` в CMake, Actions run, manifest и artifact. Новый Windows PASS и ручная приёмка обязательны; старую #153 не считать успешной.
