@@ -397,7 +397,15 @@ void TaskTree::showMenu(arranger::TaskTreeRow row, juce::Point<int> position)
     {
         if (saveAsTemplate && row.checkpointId.isEmpty()) menu.addItem(6, tr("Сохранить как шаблон…"));
         if (exportTask && row.checkpointId.isEmpty()) menu.addItem(7, tr("Экспортировать задачу с подзадачами…"));
-        if (row.checkpointId.isEmpty()) menu.addItem(8, tr("Запланировать / изменить сроки…"));
+        if (row.checkpointId.isEmpty())
+        {
+            menu.addItem(8, tr("Запланировать / изменить сроки…"));
+            if (dayPlanningMode)
+            {
+                menu.addItem(9, tr("Перенести на завтра"), addCivilDays(planningReferenceDay, 1).isNotEmpty());
+                menu.addItem(10, tr("Снять с плана"), task->plan.start.isNotEmpty());
+            }
+        }
         juce::PopupMenu statusMenu;
         const auto currentStatus = cp ? cp->status : task->properties.status;
         for (int i = 0; i < 7; ++i) statusMenu.addItem(20 + i, arranger::label(statuses[i]), true, statuses[i] == currentStatus);
@@ -429,6 +437,24 @@ void TaskTree::showMenu(arranger::TaskTreeRow row, juce::Point<int> position)
             if (item == 6) { if (safe->saveAsTemplate) safe->saveAsTemplate(ref); return; }
             if (item == 7) { if (safe->exportTask) safe->exportTask(ref); return; }
             if (item == 8) { safe->showPlan(ref, position); return; }
+            if (item == 9 || item == 10)
+            {
+                if (!safe->dayPlanningMode || row.checkpointId.isNotEmpty()) return;
+                const auto* current = arranger::WorkspaceQueries::generalTask(safe->model, ref);
+                if (!current) return;
+                const auto expected = current->plan; // CAS prevents overwriting a stale plan.
+                if (item == 9)
+                {
+                    const auto tomorrow = arranger::addCivilDays(safe->planningReferenceDay, 1);
+                    if (tomorrow.isEmpty()) return;
+                    safe->apply([&](arranger::WorkspaceCommands& cmd)
+                        { return cmd.scheduleTaskForDay(ref.taskId, expected, tomorrow); });
+                }
+                else
+                    safe->apply([&](arranger::WorkspaceCommands& cmd)
+                        { return cmd.removeTaskFromPlan(ref.taskId, expected); });
+                return;
+            }
             if (item == 4 && row.checkpointId.isEmpty()) { if (safe->archive) safe->archive(ref.taskId); return; }
             // Resolve fresh values after pending editor fields have been flushed. No model pointers survive a menu.
             if (safe->before && !safe->before()) return;
