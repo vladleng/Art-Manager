@@ -41,6 +41,16 @@ int main()
     CHECK(taskPlanForDay({}, "2026-11-07", moved).wasOk()
         && moved.start == "2026-11-07" && moved.end.isEmpty());
     CHECK(taskPlanForDay(timedRange, "2026-11-31", moved).failed());
+    CHECK(taskPlanForSlot({}, "2026-11-10", 615, moved).wasOk()
+        && moved.start == "2026-11-10T10:15" && moved.end == "2026-11-10T11:15");
+    CHECK(taskPlanForSlot({}, "2026-11-10", 1430, moved).failed()); // not 15-minute aligned
+    CHECK(taskPlanForSlot({}, "2026-11-10", 1425, moved).wasOk()
+        && moved.start == "2026-11-10T23:45" && moved.end == "2026-11-11T00:45");
+    CHECK(taskPlanForSlot(timedRange, "2027-01-04", 600, moved).wasOk()
+        && moved.start == "2027-01-04T10:00" && moved.end == "2027-01-06T11:45"
+        && moved.deadline == timedRange.deadline);
+    CHECK(taskPlanForSlot(timedRange, "2027-01-04", -1, moved).wasOk()
+        && moved.start == "2027-01-04" && moved.end == "2027-01-06");
 
     TestLocation location;
     const auto file = location.path.getChildFile("workspace.json");
@@ -116,10 +126,49 @@ int main()
         { return cmd.scheduleTaskForDay(arrange, newPlan, "invalid"); }).failed());
     CHECK(model.findTask(arrange)->plan == newPlan);
 
+    // Independent calendar events share the workspace store and Undo but
+    // never create tasks or change the source page/metadata.
+    juce::String eventId;
+    CalendarEvent event;
+    event.title = "Concert"; event.notes = "Soundcheck";
+    event.start = "2026-11-10T19:00"; event.end = "2026-11-10T21:00";
+    CHECK(controller.execute([&](WorkspaceCommands& cmd)
+        { return cmd.createCalendarEvent(event, eventId); }).wasOk());
+    CHECK(!eventId.isEmpty() && model.tasks.size() == initialCount);
+    CHECK(model.findEvent(eventId)->notes == "Soundcheck");
+    const auto savedEvent = *model.findEvent(eventId);
+    auto nextEvent = savedEvent; nextEvent.start = "2026-11-11T20:00";
+    nextEvent.end = "2026-11-11T22:00";
+    CHECK(controller.execute([&](WorkspaceCommands& cmd)
+        { return cmd.updateCalendarEvent(savedEvent, nextEvent); }).wasOk());
+    CHECK(controller.execute([&](WorkspaceCommands& cmd)
+        { return cmd.updateCalendarEvent(savedEvent, nextEvent); }).failed());
+    CHECK(controller.undoLast().wasOk() && *model.findEvent(eventId) == savedEvent);
+    CHECK(controller.execute([&](WorkspaceCommands& cmd)
+        { return cmd.archiveCalendarEvent(savedEvent); }).wasOk());
+    CHECK(model.findEvent(eventId)->archivedAt.isNotEmpty());
+    CHECK(controller.undoLast().wasOk() && *model.findEvent(eventId) == savedEvent);
+    CHECK(controller.execute([&](WorkspaceCommands& cmd)
+        { CalendarEvent duplicate = savedEvent; juce::String created;
+          return cmd.createCalendarEvent(duplicate, created); }).failed());
+    CHECK(controller.execute([&](WorkspaceCommands& cmd)
+        { CalendarEvent bad; bad.title = "Bad"; bad.start = "2026-11-10T12:00";
+          bad.end = "2026-11-10T09:00"; juce::String created;
+          return cmd.createCalendarEvent(bad, created); }).failed());
+    CalendarEvent allDay;
+    allDay.title = "Travel"; allDay.start = "2026-11-10";
+    allDay.end = "2026-11-11"; allDay.allDay = true;
+    juce::String allDayId;
+    CHECK(controller.execute([&](WorkspaceCommands& cmd)
+        { return cmd.createCalendarEvent(allDay, allDayId); }).wasOk());
+    CHECK(model.findEvent(allDayId)->allDay);
+
     const auto saved = file.loadFileAsString();
     WorkspaceModel reload;
     WorkspaceStore reopened(file);
     CHECK(reopened.load({}, {}, reload).wasOk());
+    CHECK(reload.findEvent(eventId) != nullptr && reload.findEvent(eventId)->notes == "Soundcheck"
+        && reload.findEvent(allDayId)->allDay);
     CHECK(reload.findTask(arrange)->plan == newPlan
         && reload.findTask(publish)->plan == otherPlan
         && reload.findTask(child)->plan.isEmpty());
@@ -130,6 +179,17 @@ int main()
     WorkspaceModel oldSchema2;
     CHECK(WorkspaceModel::fromJson(juce::JSON::toString(legacy), oldSchema2).wasOk());
     CHECK(oldSchema2.findTask(arrange)->plan.isEmpty());
+    CHECK(oldSchema2.events.size() == 2);
+    auto olderSchema2 = juce::JSON::parse(saved);
+    olderSchema2.getDynamicObject()->removeProperty("events");
+    WorkspaceModel missingEvents;
+    CHECK(WorkspaceModel::fromJson(juce::JSON::toString(olderSchema2), missingEvents).wasOk()
+        && missingEvents.events.empty());
+    auto corruptEvents = juce::JSON::parse(saved);
+    corruptEvents.getDynamicObject()->setProperty("events", "invalid");
+    WorkspaceModel unchangedEvents = reload;
+    CHECK(WorkspaceModel::fromJson(juce::JSON::toString(corruptEvents), unchangedEvents).failed());
+    CHECK(unchangedEvents.events.size() == 2);
     auto invalid = juce::JSON::parse(saved);
     auto* first = (*invalid.getProperty("tasks", {}).getArray())[0].getDynamicObject();
     auto rawPlan = first->getProperty("plan");
