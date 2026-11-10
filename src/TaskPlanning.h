@@ -125,4 +125,53 @@ inline juce::Result taskPlanForDay(const TaskPlan& source, const juce::String& t
     if (valid.wasOk()) target = std::move(draft);
     return valid;
 }
+
+// Apply a drop on the calendar: minute=-1 means all-day; 0..1439 is a
+// quarter-hour-aligned slot. Existing timed intervals preserve their elapsed
+// duration; date-only schedules use a 60-minute default when given a time.
+inline juce::Result taskPlanForSlot(const TaskPlan& source, const juce::String& day,
+    int minute, TaskPlan& result)
+{
+    if (!isCivilDate(day) || minute < -1 || minute >= 1440
+        || (minute >= 0 && minute % 15 != 0))
+        return juce::Result::fail("Invalid calendar day or quarter-hour slot.");
+    TaskPlan next;
+    auto valid = taskPlanForDay(source, day, next);
+    if (valid.failed()) return valid;
+    if (minute == -1)
+    {
+        next.start = day;
+        if (next.end.isNotEmpty()) next.end = next.end.substring(0, 10);
+        if (next.end == day) next.end.clear();
+    }
+    else
+    {
+        auto time = [](int m)
+        {
+            return juce::String(m / 60).paddedLeft('0', 2)
+                + ":" + juce::String(m % 60).paddedLeft('0', 2);
+        };
+        int duration = 60;
+        if (source.start.length() == 16 && source.end.length() == 16
+            && isCivilDateTime(source.start) && isCivilDateTime(source.end))
+        {
+            const int days = static_cast<int>((civilDay(source.end.substring(0, 10))
+                - civilDay(source.start.substring(0, 10))).count());
+            const int first = source.start.substring(11, 13).getIntValue() * 60
+                + source.start.substring(14, 16).getIntValue();
+            const int last = source.end.substring(11, 13).getIntValue() * 60
+                + source.end.substring(14, 16).getIntValue();
+            duration = juce::jmax(15, days * 1440 + last - first);
+        }
+        const int endMinute = minute + duration;
+        const auto endDay = addCivilDays(day, endMinute / 1440);
+        if (endDay.isEmpty())
+            return juce::Result::fail("Timed calendar interval exceeds the supported date range.");
+        next.start = day + "T" + time(minute);
+        next.end = endDay + "T" + time(endMinute % 1440);
+    }
+    valid = validateTaskPlan(next);
+    if (valid.wasOk()) result = std::move(next);
+    return valid;
+}
 }
