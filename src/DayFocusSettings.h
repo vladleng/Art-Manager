@@ -138,7 +138,9 @@ inline DayFocusSettings decodeDayFocus(const juce::String& json)
 {
     DayFocusSettings result;
     const auto parsed = juce::JSON::parse(json);
-    if (!parsed.isObject() || parsed.getProperty("version", 0) != 1) return result;
+    if (!parsed.isObject()) return result;
+    const auto version = parsed.getProperty("version", {});
+    if (!version.isInt() || static_cast<int>(version) != 1) return result;
     result.projectId = parsed.getProperty("projectId", {}).toString();
     result.status = parsed.getProperty("status", {}).toString();
     if (result.status.isNotEmpty() && parseStatus(result.status.toStdString()) == Status::unmarked)
