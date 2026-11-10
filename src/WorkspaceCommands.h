@@ -302,6 +302,26 @@ public:
         return juce::Result::ok();
     }
 
+    // #38 stage 2: existing tasks are planned by ID, never cloned into Today.
+    juce::Result scheduleTaskForDay(const juce::String& id, const TaskPlan& expected,
+        const juce::String& day)
+    {
+        TaskPlan next;
+        const auto valid = taskPlanForDay(expected, day, next);
+        if (valid.failed()) return valid;
+        return updateTaskPlan(id, expected, std::move(next));
+    }
+
+    // Clear only the planned interval; deadlines and completion facts are not
+    // another copy of the schedule and must survive an unschedule action.
+    juce::Result removeTaskFromPlan(const juce::String& id, const TaskPlan& expected)
+    {
+        auto next = expected;
+        next.start.clear();
+        next.end.clear();
+        return updateTaskPlan(id, expected, std::move(next));
+    }
+
     juce::Result replaceTaskBlocks(const juce::String& id,
         const std::vector<WorkspaceBlock>& expected, const std::vector<WorkspaceBlock>& blocks)
     {
