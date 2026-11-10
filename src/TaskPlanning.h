@@ -1,5 +1,6 @@
 #pragma once
 #include <juce_core/juce_core.h>
+#include <chrono>
 
 // Local civil dates/times are interpreted in WorkspaceModel::timezone.
 // They deliberately have no implicit system-local timezone conversion.
@@ -67,5 +68,61 @@ inline bool planDeadlineOverdue(const TaskPlan& plan, const juce::String& day)
 {
     return isCivilDate(day) && isCivilDateTime(plan.deadline)
         && plan.deadline.substring(0, 10).compare(day) < 0;
+}
+
+// Pure civil-calendar arithmetic: avoid the machine's local timezone and DST.
+// A planned date never means a JUCE/system-local midnight.
+inline std::chrono::sys_days civilDay(const juce::String& value)
+{
+    return std::chrono::sys_days {std::chrono::year_month_day {
+        std::chrono::year {value.substring(0, 4).getIntValue()},
+        std::chrono::month {static_cast<unsigned>(value.substring(5, 7).getIntValue())},
+        std::chrono::day {static_cast<unsigned>(value.substring(8, 10).getIntValue())}
+    }};
+}
+
+inline juce::String addCivilDays(const juce::String& day, int offset)
+{
+    if (!isCivilDate(day)) return {};
+    const std::chrono::year_month_day next {civilDay(day) + std::chrono::days {offset}};
+    const int year = static_cast<int>(next.year());
+    if (year < 1 || year > 9999) return {};
+    return juce::String(year).paddedLeft('0', 4) + "-"
+        + juce::String(static_cast<unsigned>(next.month())).paddedLeft('0', 2) + "-"
+        + juce::String(static_cast<unsigned>(next.day())).paddedLeft('0', 2);
+}
+
+// Schedule an existing task on a chosen day. For an existing multi-day plan,
+// move the whole range (not only its start); preserve local times, deadline
+// and completion metadata. A task without a plan acquires a single-day start.
+inline juce::Result taskPlanForDay(const TaskPlan& source, const juce::String& targetDay, TaskPlan& target)
+{
+    if (!isCivilDate(targetDay))
+        return juce::Result::fail("Choose a valid YYYY-MM-DD planning day.");
+    auto draft = source;
+    if (source.start.isEmpty())
+    {
+        draft.start = targetDay;
+        draft.end.clear();
+    }
+    else
+    {
+        if (!isCivilDateTime(source.start) ||
+            (source.end.isNotEmpty() && !isCivilDateTime(source.end)))
+            return juce::Result::fail("The existing task plan is invalid.");
+        draft.start = targetDay + source.start.substring(10); // Preserve time, if present.
+        if (source.end.isNotEmpty())
+        {
+            const auto calendarSpan = (civilDay(source.end.substring(0, 10))
+                - civilDay(source.start.substring(0, 10))).count();
+            const auto shiftedEnd = addCivilDays(targetDay, static_cast<int>(calendarSpan));
+            if (shiftedEnd.isEmpty())
+                return juce::Result::fail("The shifted planning interval is out of range.");
+            draft.end = shiftedEnd + source.end.substring(10);
+        }
+    }
+    const auto valid = validateTaskPlan(draft);
+    if (valid.wasOk()) target = std::move(draft);
+    return valid;
 }
 }
