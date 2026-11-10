@@ -316,6 +316,9 @@ void DayCalendarPanel::refresh()
             .toISO8601(true).substring(0, 10);
     }
     dateButton.setButtonText(prettyDay(day));
+    const bool filtered = focus.projectId.isNotEmpty()
+        || focus.status.isNotEmpty() || focus.hideDone;
+    focusButton.setButtonText(filtered ? tr("Фильтр •") : tr("Фильтр"));
     resized();
     repaint();
     timeline.repaint();
@@ -432,6 +435,129 @@ std::vector<DayCalendarPanel::Entry> DayCalendarPanel::entriesForDay(bool allDay
             { return positions.at(a.id) < positions.at(b.id); });
     }
     return result;
+}
+
+
+std::vector<juce::String> DayCalendarPanel::allDayIds() const
+{
+    // Collect the entire day, not merely the currently filtered subset.
+    // Reordering a filtered view must never silently lose hidden IDs.
+    std::vector<std::pair<juce::String, juce::String>> named;
+    for (const auto& task : model.tasks)
+        if (!arranger::WorkspaceQueries::taskArchived(model, task.id)
+            && task.plan.start.length() == 10
+            && arranger::planIncludesDay(task.plan, day))
+            named.emplace_back(task.id, task.properties.name);
+    for (const auto& event : model.events)
+        if (event.archivedAt.isEmpty() && event.allDay
+            && event.start.substring(0, 10) <= day
+            && event.end.substring(0, 10) >= day)
+            named.emplace_back(event.id, event.title);
+    std::stable_sort(named.begin(), named.end(), [](const auto& a, const auto& b)
+    {
+        return a.second.compareIgnoreCase(b.second) < 0;
+    });
+    std::vector<juce::String> active;
+    active.reserve(named.size());
+    for (const auto& value : named) active.push_back(value.first);
+    const auto it = focus.dayOrder.find(day);
+    return arranger::effectiveDayOrder(active,
+        it != focus.dayOrder.end() ? it->second : std::vector<juce::String> {});
+}
+
+void DayCalendarPanel::persistPreferences()
+{
+    if (saveFocusState) saveFocusState(arranger::encodeDayFocus(focus));
+}
+
+void DayCalendarPanel::reorderAllDay(const juce::String& moved,
+    const juce::String& target, bool after)
+{
+    const auto active = allDayIds();
+    const auto newOrder = arranger::moveDayCard(active, moved, target, after);
+    if (newOrder == active) return;
+    focus.dayOrder[day] = newOrder;
+    persistPreferences();
+    refresh();
+}
+
+void DayCalendarPanel::showFocusMenu()
+{
+    juce::PopupMenu menu, projectMenu, statusMenu;
+    menu.setLookAndFeel(&getLookAndFeel());
+    projectMenu.addItem(100, tr("Все страницы и проекты"), true, focus.projectId.isEmpty());
+    std::vector<juce::String> projects;
+    for (const auto& row : arranger::WorkspaceQueries::activePages(model))
+        if (const auto* page = model.findPage(row.id))
+        {
+            if (page->kind != "page" && page->kind != "note") continue;
+            const int id = 1000 + static_cast<int>(projects.size());
+            projects.push_back(page->id);
+            projectMenu.addItem(id, arranger::WorkspaceQueries::breadcrumb(model, page->id),
+                true, focus.projectId == page->id);
+        }
+    menu.addSubMenu(tr("Проект / страница"), projectMenu);
+    statusMenu.addItem(2000, tr("Все статусы и события"), true, focus.status.isEmpty());
+    const std::vector<arranger::Status> statuses {
+        arranger::Status::pool, arranger::Status::todo, arranger::Status::wip,
+        arranger::Status::draft, arranger::Status::wait,
+        arranger::Status::done, arranger::Status::blocked
+    };
+    for (size_t i = 0; i < statuses.size(); ++i)
+    {
+        const auto name = juce::String(arranger::label(statuses[i]));
+        statusMenu.addItem(2001 + static_cast<int>(i), name, true, focus.status == name);
+    }
+    menu.addSubMenu(tr("Статус задачи"), statusMenu);
+    menu.addSeparator();
+    menu.addItem(3000, tr("Скрыть выполненные"), true, focus.hideDone);
+    menu.addItem(3001, tr("Сбросить фильтры"),
+        focus.hideDone || focus.projectId.isNotEmpty() || focus.status.isNotEmpty());
+    juce::Component::SafePointer<DayCalendarPanel> safe(this);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&focusButton),
+        [safe, projects, statuses](int choice)
+        {
+            if (!safe || choice == 0) return;
+            if (choice == 100) safe->focus.projectId.clear();
+            else if (choice >= 1000 && choice < 1000 + static_cast<int>(projects.size()))
+                safe->focus.projectId = projects[static_cast<size_t>(choice - 1000)];
+            else if (choice == 2000) safe->focus.status.clear();
+            else if (choice >= 2001 && choice < 2001 + static_cast<int>(statuses.size()))
+                safe->focus.status = arranger::label(statuses[static_cast<size_t>(choice - 2001)]);
+            else if (choice == 3000) safe->focus.hideDone = !safe->focus.hideDone;
+            else if (choice == 3001)
+            {
+                safe->focus.projectId.clear();
+                safe->focus.status.clear();
+                safe->focus.hideDone = false;
+            }
+            else return;
+            safe->allDayScrollRow = 0;
+            safe->persistPreferences();
+            safe->refresh();
+        });
+}
+
+void DayCalendarPanel::showUnplannedPicker()
+{
+    if (before && !before()) return;
+    juce::Component::SafePointer<DayCalendarPanel> safe(this);
+    auto picker = std::make_unique<UnplannedTaskPicker>(model, focus,
+        [safe](const juce::String& id)
+        {
+            if (!safe) return false;
+            const auto* task = safe->model.findTask(id);
+            if (!task || task->plan.start.isNotEmpty()
+                || !arranger::focusMatchesTask(safe->model, *task, safe->focus))
+                return false;
+            const auto expected = task->plan;
+            const auto targetDay = safe->day;
+            return safe->run([=](arranger::WorkspaceCommands& cmd)
+                { return cmd.scheduleTaskAtSlot(id, expected, targetDay, -1); });
+        });
+    auto& callout = juce::CallOutBox::launchAsynchronously(
+        std::move(picker), findTaskButton.getScreenBounds(), nullptr);
+    callout.setDismissalMouseClicksAreAlwaysConsumed(true);
 }
 
 void DayCalendarPanel::paint(juce::Graphics& g)
@@ -658,6 +784,15 @@ void DayCalendarPanel::mouseDown(const juce::MouseEvent& e)
 {
     mouseStartedOnTimeline = false;
     mouseEntry.clear();
+    dragDayTarget.clear();
+    if (allDayGrip.expanded(0, 3).contains(e.getPosition()) && e.mods.isLeftButtonDown())
+    {
+        resizingAllDay = true;
+        resizeOriginY = e.y;
+        resizeStartHeight = allDayArea.getHeight();
+        return;
+    }
+    downDayY = e.y;
     if (!allDayArea.contains(e.getPosition())) return;
     for (auto it = allDayHits.rbegin(); it != allDayHits.rend(); ++it)
         if (it->bounds.contains(e.getPosition()))
@@ -668,11 +803,75 @@ void DayCalendarPanel::mouseDown(const juce::MouseEvent& e)
         }
 }
 
+void DayCalendarPanel::mouseDrag(const juce::MouseEvent& e)
+{
+    if (resizingAllDay)
+    {
+        focus.allDayHeight = juce::jlimit(110, juce::jmax(110, getHeight() - 280),
+            resizeStartHeight + e.y - resizeOriginY);
+        resized();
+        repaint();
+        return;
+    }
+    if (mouseEntry.isEmpty() || e.mods.isPopupMenu()
+        || std::abs(e.y - downDayY) < 7)
+        return;
+    dragDayTarget.clear();
+    for (const auto& hit : allDayHits)
+        if (hit.entry.id != mouseEntry && hit.bounds.contains(e.getPosition()))
+        {
+            dragDayTarget = hit.entry.id;
+            dragDayAfter = e.y >= hit.bounds.getCentreY();
+            break;
+        }
+    repaint();
+}
+
+void DayCalendarPanel::mouseMove(const juce::MouseEvent& e)
+{
+    setMouseCursor(allDayGrip.expanded(0, 3).contains(e.getPosition())
+        ? juce::MouseCursor::UpDownResizeCursor
+        : juce::MouseCursor::NormalCursor);
+}
+
+void DayCalendarPanel::mouseWheelMove(const juce::MouseEvent& e,
+    const juce::MouseWheelDetails& wheel)
+{
+    if (allDayArea.contains(e.getPosition()) && wheel.deltaY != 0.0f)
+    {
+        const int visible = juce::jmax(1, (allDayArea.getHeight() - 43) / 44);
+        const int rows = static_cast<int>(entriesForDay(true).size());
+        allDayScrollRow = juce::jlimit(0, juce::jmax(0, rows - visible),
+            allDayScrollRow + (wheel.deltaY > 0.0f ? -1 : 1));
+        repaint();
+        return;
+    }
+    juce::Component::mouseWheelMove(e, wheel);
+}
+
 void DayCalendarPanel::mouseUp(const juce::MouseEvent& e)
 {
-    if (mouseEntry.isEmpty() || !allDayArea.contains(e.getPosition())) return;
+    if (resizingAllDay)
+    {
+        resizingAllDay = false;
+        persistPreferences();
+        return;
+    }
+    if (mouseEntry.isEmpty()) return;
+    const auto id = mouseEntry;
+    const auto target = dragDayTarget;
+    const bool after = dragDayAfter;
+    dragDayTarget.clear();
+    mouseEntry.clear();
+    if (std::abs(e.y - downDayY) >= 7)
+    {
+        if (target.isNotEmpty()) reorderAllDay(id, target, after);
+        repaint();
+        return;
+    }
+    if (!allDayArea.contains(e.getPosition())) return;
     for (const auto& hit : allDayHits)
-        if (hit.entry.id == mouseEntry && hit.entry.event == mouseEntryIsEvent)
+        if (hit.entry.id == id && hit.entry.event == mouseEntryIsEvent)
         {
             if (e.mods.isPopupMenu()) showEntryMenu(hit.entry, e.getScreenPosition());
             else if (hit.entry.event) editEvent(hit.entry.id, true, -1);
@@ -680,7 +879,6 @@ void DayCalendarPanel::mouseUp(const juce::MouseEvent& e)
                 if (openTask) openTask({{}, task->ownerPageId, task->id});
             break;
         }
-    mouseEntry.clear();
 }
 
 void DayCalendarPanel::timelineDown(const juce::MouseEvent& e)
