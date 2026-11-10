@@ -4,6 +4,7 @@
 #include "WorkspaceTemplateCreation.h"
 #include "TaskQuickProperties.h"
 #include "TaskPlanEditor.h"
+#include "DayCalendarPanel.h"
 #include "TaskProgressMeter.h"
 #include <iostream>
 static bool check(bool value, const char* message) { if (!value) std::cerr << message << '\n'; return value; }
@@ -329,6 +330,43 @@ int main()
     REQUIRE(dragModel.findTask(nested)->parentTaskId == to,
         "Dropping a nested row did not reparent the actual task");
     dragTree.setLookAndFeel(nullptr);
+
+    // #38/0.3.1: the SAME local task is scheduled by dropping its tree
+    // descriptor into the persistent day sidebar (not a new task copy).
+    const auto beforeCalendarTaskCount = dragModel.tasks.size();
+    DayCalendarPanel calendar(dragModel,
+        [&](const arranger::WorkspaceAction& action) { return action(dragCmd); },
+        [] { return true; }, [] {}, [](arranger::TaskReference) {}, [] {});
+    calendar.setLookAndFeel(&theme);
+    calendar.setSize(340, 760);
+    calendar.setDay("2026-11-10");
+    const juce::DragAndDropTarget::SourceDetails toAllDay {
+        juce::var("manager-task|" + nested + "|" + dragPage + "|" + to),
+        &dragList[0], {55, 126}
+    };
+    REQUIRE(calendar.isInterestedInDragSource(toAllDay),
+        "Calendar rejected an ordinary nested task");
+    calendar.itemDropped(toAllDay);
+    REQUIRE(dragModel.tasks.size() == beforeCalendarTaskCount
+        && dragModel.findTask(nested)->ownerPageId == dragPage
+        && dragModel.findTask(nested)->parentTaskId == to
+        && dragModel.findTask(nested)->plan.start == "2026-11-10",
+        "Dragging a task into all-day created a copy or changed ownership");
+    arranger::CalendarEvent liveEvent;
+    liveEvent.title = "Concert"; liveEvent.start = "2026-11-10T19:00";
+    liveEvent.end = "2026-11-10T20:00";
+    juce::String eventId;
+    REQUIRE(dragCmd.createCalendarEvent(liveEvent, eventId).wasOk(),
+        "Could not create standalone calendar event");
+    calendar.refresh();
+    for (auto scale : {1.0f, 1.5f, 2.0f})
+    {
+        const auto image = calendar.createComponentSnapshot(calendar.getLocalBounds(), true, scale);
+        REQUIRE(image.isValid() && image.getWidth() >= 340,
+            "Daily calendar sidebar DPI snapshot failed");
+    }
+    REQUIRE(snapshot(calendar, "calendar-sidebar.png"), "Calendar sidebar preview");
+    calendar.setLookAndFeel(nullptr);
 
 
 
