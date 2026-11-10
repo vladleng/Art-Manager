@@ -75,6 +75,7 @@ private:
     void updateTaskProjection();
     void showFilterMenu();
     void showSortMenu();
+    void showPlanTaskMenu();
 
     mr::ManagerTheme theme;
     arranger::WorkspaceModel& model;
@@ -88,7 +89,7 @@ private:
     bool applyingView = false;
     juce::TextEditor searchBox, todayDateEditor;
     juce::String todayDay;
-    juce::TextButton filterButton, sortButton, clearButton;
+    juce::TextButton filterButton, sortButton, clearButton, planTaskButton;
     bool rebuilding = false;
     juce::String dropPageId;
     juce::String dropPageAt(juce::Point<int>) const;
