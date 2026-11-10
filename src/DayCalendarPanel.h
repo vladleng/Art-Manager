@@ -34,7 +34,7 @@ public:
 private:
     struct Entry
     {
-        juce::String id, title, source;
+        juce::String id, title, source, compact;
         bool event = false, allDay = false;
         int begin = 0, end = 0;
         arranger::Status status = arranger::Status::todo;

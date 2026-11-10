@@ -1,5 +1,6 @@
 #include "DayCalendarPanel.h"
 #include "WorkspaceQueries.h"
+#include "CalendarCardLabels.h"
 #include <algorithm>
 
 namespace
@@ -205,7 +206,8 @@ void DayCalendarPanel::resized()
     newEvent.setBounds(w - 49, 52, 34, 28);
     dismiss.setBounds(w - 78, 52, 26, 28);
     const int rows = static_cast<int>(entriesForDay(true).size());
-    const int areaHeight = juce::jlimit(110, 213, 60 + rows * 28);
+    // All-day cards need two visible rows: ancestor context and own title.
+    const int areaHeight = juce::jlimit(110, 270, 49 + rows * 44);
     allDayArea = {8, 84, juce::jmax(0, w - 16), areaHeight};
     viewport.setBounds(0, allDayArea.getBottom() + 8, w,
         juce::jmax(0, getHeight() - allDayArea.getBottom() - 8));
@@ -244,7 +246,9 @@ std::vector<DayCalendarPanel::Entry> DayCalendarPanel::entriesForDay(bool allDay
         if (isAllDay != allDay) continue;
         Entry e;
         e.id = task.id; e.title = task.properties.name;
-        e.source = arranger::WorkspaceQueries::breadcrumb(model, task.ownerPageId);
+        const auto label = arranger::calendarCardLabels(model, task);
+        e.source = label.context;
+        e.compact = label.compact;
         e.allDay = isAllDay; e.status = task.properties.status;
         if (!isAllDay)
         {
@@ -267,6 +271,7 @@ std::vector<DayCalendarPanel::Entry> DayCalendarPanel::entriesForDay(bool allDay
         e.source = event.ownerPageId.isNotEmpty()
             ? arranger::WorkspaceQueries::breadcrumb(model, event.ownerPageId)
             : tr("Событие");
+        e.compact = e.title;
         e.event = true; e.allDay = event.allDay;
         if (!allDay)
         {
@@ -308,19 +313,25 @@ void DayCalendarPanel::paint(juce::Graphics& g)
         allDayArea.getWidth() - 20, 23, juce::Justification::centredLeft);
     allDayHits.clear();
     auto entries = entriesForDay(true);
-    const int available = juce::jmax(0, (allDayArea.getHeight() - 36) / 27);
+    const int available = juce::jmax(0, (allDayArea.getHeight() - 43) / 44);
     for (int i = 0; i < static_cast<int>(entries.size()) && i < available; ++i)
     {
         const auto& e = entries[static_cast<size_t>(i)];
         const juce::Rectangle<int> rect {allDayArea.getX() + 9,
-            allDayArea.getY() + 31 + i * 27, allDayArea.getWidth() - 18, 23};
+            allDayArea.getY() + 31 + i * 44, allDayArea.getWidth() - 18, 41};
         g.setColour(e.event ? juce::Colour(0xff355253) : mr::colour(mr::tokens::selected));
         g.fillRoundedRectangle(rect.toFloat(), 4.0f);
         g.setColour(e.event ? juce::Colour(0xff81c9b7) : mr::statusInk(e.status));
         g.fillRoundedRectangle(static_cast<float>(rect.getX()), static_cast<float>(rect.getY()),
             3.0f, static_cast<float>(rect.getHeight()), 1.5f);
-        g.setColour(mr::colour(mr::tokens::bright)); g.setFont(juce::FontOptions(11.5f));
-        g.drawFittedText(e.title, rect.reduced(9, 0), juce::Justification::centredLeft, 1);
+        g.setColour(mr::colour(mr::tokens::meta));
+        g.setFont(juce::FontOptions(10.0f));
+        g.drawFittedText(e.source, rect.getX() + 9, rect.getY() + 2,
+            rect.getWidth() - 16, 16, juce::Justification::centredLeft, 1);
+        g.setColour(mr::colour(mr::tokens::bright));
+        g.setFont(juce::FontOptions(11.5f, juce::Font::bold));
+        g.drawFittedText(e.title, rect.getX() + 9, rect.getY() + 19,
+            rect.getWidth() - 16, 19, juce::Justification::centredLeft, 1);
         allDayHits.push_back({rect, e});
     }
     if (static_cast<int>(entries.size()) > available)
@@ -387,17 +398,26 @@ void DayCalendarPanel::paintTimeline(juce::Graphics& g)
         g.setColour(e.event ? juce::Colour(0xff80c1b1) : mr::statusInk(e.status));
         g.fillRoundedRectangle(static_cast<float>(rect.getX()), static_cast<float>(rect.getY()),
             3.0f, static_cast<float>(rect.getHeight()), 1.5f);
-        g.setColour(mr::colour(mr::tokens::bright));
-        g.setFont(juce::FontOptions(11.5f, juce::Font::bold));
-        g.drawFittedText(e.title, rect.getX() + 9, rect.getY() + 3,
-            rect.getWidth() - 13, juce::jmin(20, rect.getHeight() - 3),
-            juce::Justification::centredLeft, 1);
-        if (h > 42)
+        if (h >= 40)
         {
             g.setColour(mr::colour(mr::tokens::meta));
             g.setFont(juce::FontOptions(10.0f));
-            g.drawFittedText(e.source, rect.getX() + 9, rect.getY() + 22,
-                rect.getWidth() - 13, 16, juce::Justification::centredLeft, 1);
+            g.drawFittedText(e.source, rect.getX() + 9, rect.getY() + 2,
+                rect.getWidth() - 13, 15, juce::Justification::centredLeft, 1);
+            g.setColour(mr::colour(mr::tokens::bright));
+            g.setFont(juce::FontOptions(11.5f, juce::Font::bold));
+            g.drawFittedText(e.title, rect.getX() + 9, rect.getY() + 19,
+                rect.getWidth() - 13, 18, juce::Justification::centredLeft, 1);
+        }
+        else
+        {
+            // A 15- or 30-minute block cannot hold two lines.
+            g.setColour(mr::colour(mr::tokens::bright));
+            g.setFont(juce::FontOptions(10.5f, juce::Font::bold));
+            g.drawFittedText(e.compact.isNotEmpty() ? e.compact : e.title,
+                rect.getX() + 9, rect.getY() + 1, rect.getWidth() - 13,
+                juce::jmax(12, rect.getHeight() - 2),
+                juce::Justification::centredLeft, 1);
         }
         timedHits.push_back({rect, e});
     }

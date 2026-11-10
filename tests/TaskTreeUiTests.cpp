@@ -5,6 +5,7 @@
 #include "TaskQuickProperties.h"
 #include "TaskPlanEditor.h"
 #include "DayCalendarPanel.h"
+#include "CalendarCardLabels.h"
 #include "TaskProgressMeter.h"
 #include <iostream>
 static bool check(bool value, const char* message) { if (!value) std::cerr << message << '\n'; return value; }
@@ -329,6 +330,28 @@ int main()
     dragTree.itemDropped(drop);
     REQUIRE(dragModel.findTask(nested)->parentTaskId == to,
         "Dropping a nested row did not reparent the actual task");
+
+    // Calendar cards must identify the original task's parent, even with
+    // identical child titles in other projects and deeply nested subtrees.
+    juce::String deepChild;
+    REQUIRE(dragCmd.createSubtask(nested, "Edit stems", deepChild).wasOk(),
+        "Create deep calendar label fixture");
+    const auto parentCard = arranger::calendarCardLabels(dragModel, *dragModel.findTask(nested));
+    const auto subCard = arranger::calendarCardLabels(dragModel, *dragModel.findTask(deepChild));
+    REQUIRE(parentCard.context == "Test page · Parent B"
+        && parentCard.compact == "Parent B › Nested task",
+        "Calendar card omitted the page or immediate parent");
+    REQUIRE(subCard.context == "Test page · Parent B › Nested task"
+        && subCard.compact == "Nested task › Edit stems"
+        && subCard.full == "Test page · Parent B › Nested task › Edit stems",
+        "Deep calendar subtask card omitted a parent or its own title");
+    const auto oldParent = dragModel.findTask(to)->properties;
+    auto renamedParent = oldParent; renamedParent.name = "Rehearsal";
+    REQUIRE(dragCmd.updateTask(to, oldParent, renamedParent).wasOk(),
+        "Rename parent in live calendar model");
+    REQUIRE(arranger::calendarCardLabels(dragModel, *dragModel.findTask(deepChild)).context
+        == "Test page · Rehearsal › Nested task",
+        "Calendar ancestry was not updated after parent rename");
     dragTree.setLookAndFeel(nullptr);
 
     // #38/0.3.1: the SAME local task is scheduled by dropping its tree
