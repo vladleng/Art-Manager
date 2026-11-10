@@ -567,7 +567,8 @@ void DayCalendarPanel::paint(juce::Graphics& g)
     g.drawVerticalLine(0, 0.0f, static_cast<float>(getHeight()));
     g.setColour(mr::colour(mr::tokens::bright));
     g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
-    g.drawText(tr("КАЛЕНДАРЬ"), 13, 56, getWidth() - 100, 20,
+    g.drawText(getWidth() < 310 ? tr("ДЕНЬ") : tr("КАЛЕНДАРЬ"),
+        13, 56, juce::jmax(30, getWidth() - 205), 20,
         juce::Justification::centredLeft);
     g.setColour(mr::colour(mr::tokens::outline));
     g.drawHorizontalLine(83, 0, static_cast<float>(getWidth()));
