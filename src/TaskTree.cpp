@@ -402,7 +402,7 @@ void TaskTree::showMenu(arranger::TaskTreeRow row, juce::Point<int> position)
             menu.addItem(8, tr("Запланировать / изменить сроки…"));
             if (dayPlanningMode)
             {
-                menu.addItem(9, tr("Перенести на завтра"), addCivilDays(planningReferenceDay, 1).isNotEmpty());
+                menu.addItem(9, tr("Перенести на завтра"), arranger::addCivilDays(planningReferenceDay, 1).isNotEmpty());
                 menu.addItem(10, tr("Снять с плана"), task->plan.start.isNotEmpty());
             }
         }
@@ -684,7 +684,7 @@ int TaskTree::headerDividerAt(int x) const
 }
 juce::var TaskTree::getDragSourceDescription(const juce::SparseSet<int>& selected)
 {
-    if (!manualOrder || selected.size() != 1 || editing) return {};
+    if (!manualOrder || dayPlanningMode || selected.size() != 1 || editing) return {};
     const auto index = selected.getRange(0).getStart();
     if (index < 0 || index >= getNumRows()) return {};
     const auto row = rows[static_cast<size_t>(index)];
@@ -698,7 +698,7 @@ juce::var TaskTree::getDragSourceDescription(const juce::SparseSet<int>& selecte
 }
 bool TaskTree::isInterestedInDragSource(const SourceDetails& source)
 {
-    if (!manualOrder) return false;
+    if (!manualOrder || dayPlanningMode) return false;
     return source.description.toString().startsWith("manager-task|")
         || source.description.toString().startsWith("manager-checkpoint|");
 }
