@@ -196,12 +196,11 @@ int main()
     auto* view = list->getListBoxModel();
     REQUIRE(view->getNumRows() == 3 && list->getRowHeight() == 40, "Compact root task table");
 
-    // #38/0.3.1-Upd2-fix2 regression: JUCE normally invokes
-    // listBoxItemClicked on mouseDown for an unselected row, which opens the
-    // task properties callout BEFORE it is possible to begin a drag.
-    // The gesture must wait until mouseUp, when JUCE knows it wasn't a drag.
-    REQUIRE(!list->getRowSelectedOnMouseDown(),
-        "Task rows still dispatch click on mouseDown and block first-time drag");
+    // #38/0.3.1-Upd2-fix3: a previously unselected task row must become
+    // a valid drag source immediately, but its quick-properties callout
+    // must not appear until a true (non-dragged) mouseUp.
+    REQUIRE(list->getRowSelectedOnMouseDown(),
+        "First press must select the row for native JUCE drag source creation");
     auto* rowCanvas = list->getViewport()->getViewedComponent();
     juce::Component* firstTaskRow = nullptr;
     for (int i = 0; rowCanvas && i < rowCanvas->getNumChildComponents(); ++i)
@@ -214,16 +213,36 @@ int main()
         }
     }
     REQUIRE(firstTaskRow != nullptr, "Could not locate visible task row for click/drag repro");
-    const auto press = click(*firstTaskRow, 10);
+    const auto press = click(*firstTaskRow, 415);
+    const auto initialModals = juce::ModalComponentManager::getInstance()->getNumModalComponents();
     firstTaskRow->mouseDown(press);
-    REQUIRE(view->getNumRows() == 3,
-        "Pressing/holding the first unselected task already dispatched the click");
-    firstTaskRow->mouseUp(press);
-    REQUIRE(view->getNumRows() == 8,
-        "A completed ordinary click must still expand the task on mouseUp");
+    REQUIRE(list->isRowSelected(1), "First press did not select task for dragging");
+    REQUIRE(juce::ModalComponentManager::getInstance()->getNumModalComponents() == initialModals,
+        "Premature quick-properties window opened on mouseDown");
+    REQUIRE(view->getDragSourceDescription(list->getSelectedRows()).toString()
+            .startsWith("manager-task|"),
+        "First pressed task does not supply a valid drag source");
+    // Forward the row's drag gesture to its TaskTree mouse listener.
+    // A move must cancel pending click even if a drag starts outside the row.
+    tree.mouseDrag(mouseAt(*firstTaskRow, 480, 16));
+    tree.mouseUp(mouseAt(*firstTaskRow, 480, 16));
+    REQUIRE(juce::ModalComponentManager::getInstance()->getNumModalComponents() == initialModals,
+        "Dragging a task activated its quick-properties window");
 
-    // Notes now live in the right-hand column, not in an expandable detail row.
-    REQUIRE(view->getNumRows() == 8, "Opening task must show four checkpoints and one add row, but no Notes row");
+    // Repeat without movement: mouseUp (not mouseDown) must open the editor.
+    list->deselectAllRows();
+    firstTaskRow->mouseDown(press);
+    REQUIRE(juce::ModalComponentManager::getInstance()->getNumModalComponents() == initialModals,
+        "Second press opened properties before mouseUp");
+    tree.mouseUp(press);
+    REQUIRE(juce::ModalComponentManager::getInstance()->getNumModalComponents() > initialModals,
+        "Ordinary mouseUp no longer opens the task properties");
+    juce::ModalComponentManager::getInstance()->cancelAllModalComponents();
+
+    // Existing expand control remains unchanged, independent of name click.
+    view->listBoxItemClicked(1, click(*list, 10));
+    REQUIRE(view->getNumRows() == 8,
+        "Opening task must show four checkpoints and one add row, but no Notes row");
     // A checkpoint now has a neutral leaf glyph, never a second DONE checkbox.
     // Clicking its former square must not silently change TODO/DONE.
     const auto firstCheckpointId = model.findTask(first)->checkpoints[0].id;
@@ -362,6 +381,26 @@ int main()
     dragTree.itemDropped(drop);
     REQUIRE(dragModel.findTask(nested)->parentTaskId == to,
         "Dropping a nested row did not reparent the actual task");
+
+    // Even if the user sorts by name or priority, external drag into the
+    // calendar must remain possible. Sorted lists still must reject *internal*
+    // task reordering; only manual-order views may accept that drop.
+    for (auto sort : {arranger::TaskViewSort::nameAsc, arranger::TaskViewSort::priority})
+    {
+        arranger::TaskViewOptions sorted;
+        sorted.sort = sort;
+        dragTree.setViewOptions(sorted);
+        dragTree.setTasks(arranger::WorkspaceQueries::allTasks(dragModel));
+        juce::SparseSet<int> sourceRow;
+        sourceRow.addRange(juce::Range<int>(0, 1));
+        const auto dragValue = dragList->getListBoxModel()->getDragSourceDescription(sourceRow);
+        REQUIRE(dragValue.toString().startsWith("manager-task|"),
+            "Sorted list must still let tasks start a drag into calendar");
+        REQUIRE(!dragTree.isInterestedInDragSource(drop),
+            "Sorted list accidentally enabled internal task reordering");
+    }
+    dragTree.setViewOptions({});
+    dragTree.setTasks(arranger::WorkspaceQueries::allTasks(dragModel));
 
     // Calendar cards must identify the original task's parent, even with
     // identical child titles in other projects and deeply nested subtrees.
