@@ -2,6 +2,7 @@
 #include <JuceHeader.h>
 #include "WorkspaceCommands.h"
 #include "MRManagerStyle.h"
+#include "DayFocusSettings.h"
 #include <functional>
 #include <vector>
 
@@ -15,7 +16,9 @@ public:
     DayCalendarPanel(arranger::WorkspaceModel&, Execute, Before,
         std::function<void()> onChanged,
         std::function<void(arranger::TaskReference)> onOpenTask,
-        std::function<void()> onClose);
+        std::function<void()> onClose,
+        juce::String savedFocus = {},
+        std::function<void(juce::String)> saveFocus = {});
     ~DayCalendarPanel() override;
 
     void paint(juce::Graphics&) override;
@@ -30,6 +33,9 @@ public:
     void itemDropped(const SourceDetails&) override;
     void mouseDown(const juce::MouseEvent&) override;
     void mouseUp(const juce::MouseEvent&) override;
+    void mouseDrag(const juce::MouseEvent&) override;
+    void mouseMove(const juce::MouseEvent&) override;
+    void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
 private:
     struct Entry
@@ -61,6 +67,11 @@ private:
 
     bool run(const arranger::WorkspaceAction&);
     std::vector<Entry> entriesForDay(bool allDay) const;
+    std::vector<juce::String> allDayIds() const;
+    void reorderAllDay(const juce::String& moved, const juce::String& target, bool after);
+    void showFocusMenu();
+    void showUnplannedPicker();
+    void persistPreferences();
     std::vector<Hit> allDayHits, timedHits;
     void paintTimeline(juce::Graphics&);
     void timelineDown(const juce::MouseEvent&);
@@ -81,19 +92,27 @@ private:
     std::function<void()> changed, openNothing, close;
     std::function<void(arranger::TaskReference)> openTask;
     juce::String day;
-    juce::TextButton previous, next, today, newEvent, dateButton, dismiss;
+    arranger::DayFocusSettings focus;
+    std::function<void(juce::String)> saveFocusState;
+    juce::TextButton previous, next, today, newEvent, dateButton, dismiss, focusButton, findTaskButton;
     juce::Label hint;
     Timeline timeline {*this};
     juce::Viewport viewport;
     mr::Icons icons;
     int hoveredMinute = -1;
+    int allDayScrollRow = 0;
+    bool resizingAllDay = false;
+    int resizeOriginY = 0, resizeStartHeight = 0;
+    juce::String dragDayTarget;
+    bool dragDayAfter = false;
+    int downDayY = 0;
     bool allDayHover = false;
     juce::String mouseEntry;
     bool mouseEntryIsEvent = false;
     bool resizeEntry = false;
     bool mouseStartedOnTimeline = false;
     int downY = 0, downMinute = 0;
-    juce::Rectangle<int> allDayArea;
+    juce::Rectangle<int> allDayArea, allDayGrip;
     static constexpr int hourPixels = 60;
     static constexpr int gutter = 52;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DayCalendarPanel)
