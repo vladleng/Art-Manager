@@ -206,7 +206,7 @@ private:
                 {
                     juce::NativeMessageBox::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
                         "Workspace storage", "Version: " + juce::String(ARRANGER_MANAGER_VERSION) + "\nWorkspace ID: " + workspace.id
-                            + "\nSchema: 2\nRevision: " + juce::String(workspace.revision)
+                            + "\nSchema: 3\nRevision: " + juce::String(workspace.revision)
                             + "\nSongs: " + juce::String(static_cast<int>(workspace.catalog.songs.size()))
                             + "\nPages: " + juce::String(static_cast<int>(workspace.pages.size()))
                             + "\nFile: " + store->getFile().getFullPathName()
