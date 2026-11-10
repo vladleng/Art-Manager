@@ -102,7 +102,7 @@ struct WorkspaceModel
     SongCatalog catalog;
     std::vector<WorkspacePage> pages;
     std::vector<WorkspaceTask> tasks;
-    std::vector<CalendarEvent> events; // Optional schema-2 field, absent in older workspaces.
+    std::vector<CalendarEvent> events; // Added in schema 3; schema 2 remains readable.
 
     const CalendarEvent* findEvent(const juce::String& eventId) const
     {
@@ -282,7 +282,7 @@ struct WorkspaceModel
     {
         auto root = std::make_unique<juce::DynamicObject>();
         root->setProperty("format", "ArrangerManagerWorkspace");
-        root->setProperty("schemaVersion", 2);
+        root->setProperty("schemaVersion", 3);
         root->setProperty("id", id);
         root->setProperty("name", name);
         root->setProperty("timezone", timezone);
@@ -443,9 +443,10 @@ struct WorkspaceModel
         const auto root = juce::JSON::parse(text);
         const int version = static_cast<int>(root.getProperty("schemaVersion", 0));
         if (!root.isObject() || root.getProperty("format", {}).toString() != "ArrangerManagerWorkspace"
-            || (version != 1 && version != 2))
+            || (version != 1 && version != 2 && version != 3))
             return juce::Result::fail("Invalid or unsupported workspace schema; file was not modified.");
-        if (version == 1 && (root.hasProperty("tasks") || root.hasProperty("events")))
+        if ((version == 1 && (root.hasProperty("tasks") || root.hasProperty("events")))
+            || (version == 2 && root.hasProperty("events")))
             return juce::Result::fail("Schema 1 contains unexpected task/event data; migration cancelled.");
         WorkspaceModel candidate;
         candidate.id = root.getProperty("id", {}).toString();
@@ -475,7 +476,7 @@ struct WorkspaceModel
             candidate.pages.push_back(std::move(page));
         }
 
-        if (version == 2)
+        if (version >= 2)
         {
             const auto taskArray = root.getProperty("tasks", {});
             if (!taskArray.isArray()) return juce::Result::fail("Workspace tasks are missing.");
@@ -520,7 +521,7 @@ struct WorkspaceModel
                 }
                 candidate.tasks.push_back(std::move(task));
             }
-            if (root.hasProperty("events"))
+            if (version == 3 && root.hasProperty("events"))
             {
                 const auto rawEvents = root.getProperty("events", {});
                 if (!rawEvents.isArray()) return juce::Result::fail("Calendar events must be an array.");
