@@ -73,11 +73,11 @@ TaskTree::TaskTree(arranger::WorkspaceModel& data, Execute run, std::function<bo
             widths = {values[0], values[1], values[2], values[3], values[4], values[5]};
     }
     addAndMakeVisible(list); list.setRowHeight(40); list.setMultipleSelectionEnabled(false);
-    // JUCE selects a newly pressed row on mouseDown by default. That also
-    // invokes listBoxItemClicked and opens TaskQuickProperties before the
-    // first drag can begin. Select/click on mouseUp instead: JUCE suppresses
-    // the click when a row is being dragged, including nested task rows.
-    list.setRowSelectedOnMouseDown(false);
+    // Keep JUCE's native row selection on mouseDown so a *first* press can
+    // become a drag (including to the calendar). Delay only the name-column
+    // action until mouseUp; selection and drag source stay independent.
+    list.setRowSelectedOnMouseDown(true);
+    list.addMouseListener(this, true); // Observe mouseUp/drag from nested JUCE row components.
     resizeColumns();
     list.setColour(juce::ListBox::backgroundColourId, mr::colour(mr::tokens::canvas));
     list.setColour(juce::ListBox::outlineColourId, juce::Colours::transparentBlack);
@@ -297,20 +297,36 @@ void TaskTree::listBoxItemClicked(int index, const juce::MouseEvent& event)
     const int nameX = columns.name + row.depth * 14;
     if (event.x >= nameX && event.x < columns.progress)
     {
-        if (event.getNumberOfClicks() > 1) return; // First click already opened the editor.
-        if (arranger::WorkspaceQueries::generalTask(model, row.reference))
+        if (event.getNumberOfClicks() > 1) return;
+        // JUCE's ListBox invokes this callback on mouseDown for a newly
+        // selected row. Opening a CallOutBox there cancels the pending drag.
+        // An ordinary click is instead committed when the row receives
+        // mouseUp, provided the pointer stayed on that same task.
+        if (event.mods.isLeftButtonDown())
         {
-            // A normal left click on the task name opens a small anchored editor,
-            // never the redundant full-page TaskDetails view.
-            if (row.checkpointId.isEmpty())
-                editTask(row.reference, event.getScreenPosition());
-            else if (event.x >= nameX + 18) // The checkpoint leaf glyph remains inert.
-                editCheckpoint(row.reference, row.checkpointId, event.getScreenPosition());
+            pendingNameClick = PendingNameClick {row, index, event.x, event.getScreenPosition()};
+            return;
         }
-        else if (row.checkpointId.isEmpty() && event.x < nameX + 18 && open)
-            open(row.reference); // Legacy archive remains accessible without Studio Pro.
+        // Already-selected rows are dispatched by JUCE on mouseUp.
+        pendingNameClick.reset();
+        activateNameClick(row, event.x, event.getScreenPosition());
     }
 }
+void TaskTree::activateNameClick(arranger::TaskTreeRow row, int localX,
+    juce::Point<int> screenPosition)
+{
+    const int nameX = widths.name + row.depth * 14;
+    if (arranger::WorkspaceQueries::generalTask(model, row.reference))
+    {
+        if (row.checkpointId.isEmpty())
+            editTask(row.reference, screenPosition);
+        else if (localX >= nameX + 18)
+            editCheckpoint(row.reference, row.checkpointId, screenPosition);
+    }
+    else if (row.checkpointId.isEmpty() && localX < nameX + 18 && open)
+        open(row.reference);
+}
+
 void TaskTree::listBoxItemDoubleClicked(int index, const juce::MouseEvent& event)
 {
     if (event.mods.isPopupMenu() || index < 0 || index >= getNumRows()) return;
@@ -332,6 +348,9 @@ void TaskTree::returnKeyPressed(int index) { if (index >= 0 && index < getNumRow
 void TaskTree::backgroundClicked(const juce::MouseEvent& event) { if (event.mods.isPopupMenu()) showBackgroundMenu(event.getScreenPosition()); }
 void TaskTree::mouseDown(const juce::MouseEvent& event)
 {
+    // Nested ListBox rows notify us as a MouseListener; their coordinates are
+    // *not* the TaskTree header coordinates used for column resizing.
+    if (event.eventComponent != this) return;
     if (event.y < 32 && event.mods.isLeftButtonDown())
     {
         resizingColumn = headerDividerAt(event.x);
@@ -347,7 +366,10 @@ void TaskTree::mouseDown(const juce::MouseEvent& event)
 }
 void TaskTree::mouseDrag(const juce::MouseEvent& event)
 {
-    if (resizingColumn < 0) return;
+    if (pendingNameClick && event.getScreenPosition()
+            .getDistanceFrom(pendingNameClick->pressScreen) >= 6)
+        pendingNameClick.reset(); // Started dragging: never open the editor.
+    if (event.eventComponent != this || resizingColumn < 0) return;
     int* values[] = {&widths.name, &widths.progress, &widths.priority, &widths.date, &widths.notes, &widths.source};
     const int minimum[] = {180, 110, 80, 100, 160, 100};
     const int maximum[] = {900, 400, 240, 240, 900, 600};
@@ -356,8 +378,24 @@ void TaskTree::mouseDrag(const juce::MouseEvent& event)
     resizeColumns();
     positionInline();
 }
-void TaskTree::mouseUp(const juce::MouseEvent&)
+void TaskTree::mouseUp(const juce::MouseEvent& event)
 {
+    // The ListBox's built-in row component handles the actual DnD. We only
+    // commit a name click if the same row was released without a drag.
+    if (pendingNameClick)
+    {
+        const auto pending = *pendingNameClick;
+        pendingNameClick.reset();
+        const auto onList = event.getEventRelativeTo(&list).getPosition();
+        const int releasedIndex = list.getRowContainingPosition(onList.x, onList.y);
+        if (!event.mods.isPopupMenu()
+            && event.getScreenPosition().getDistanceFrom(pending.pressScreen) < 6
+            && releasedIndex == pending.rowIndex
+            && releasedIndex >= 0 && releasedIndex < getNumRows()
+            && rows[static_cast<size_t>(releasedIndex)].key() == pending.row.key())
+            activateNameClick(pending.row, pending.localX, event.getScreenPosition());
+    }
+    if (event.eventComponent != this) return;
     if (resizingColumn >= 0)
     {
         resizingColumn = -1;
@@ -664,7 +702,9 @@ int TaskTree::headerDividerAt(int x) const
 }
 juce::var TaskTree::getDragSourceDescription(const juce::SparseSet<int>& selected)
 {
-    if (!manualOrder || selected.size() != 1 || editing) return {};
+    // External drag to the calendar must work even in sorted list views.
+    // Only reordering *inside* TaskTree remains restricted to manual sort.
+    if (selected.size() != 1 || editing) return {};
     const auto index = selected.getRange(0).getStart();
     if (index < 0 || index >= getNumRows()) return {};
     const auto row = rows[static_cast<size_t>(index)];
@@ -672,7 +712,9 @@ juce::var TaskTree::getDragSourceDescription(const juce::SparseSet<int>& selecte
     const auto* parent = arranger::WorkspaceQueries::generalTask(model, row.reference);
     if (!parent || arranger::WorkspaceQueries::taskArchived(model, parent->id)) return {};
     if (row.checkpointId.isNotEmpty())
-        return "manager-checkpoint|" + parent->id + "|" + row.checkpointId;
+        return manualOrder
+            ? juce::var("manager-checkpoint|" + parent->id + "|" + row.checkpointId)
+            : juce::var();
     return "manager-task|" + parent->id + "|" + parent->ownerPageId + "|"
         + (parent->parentTaskId.isEmpty() ? juce::String("root") : parent->parentTaskId);
 }
