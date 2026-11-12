@@ -1,85 +1,200 @@
 name: Windows App Build
-run-name: Arranger Manager 0.3.1-Upd2-fix3 - ${{ github.ref_name }}
-# Keep only the newest PR candidate to conserve Actions minutes.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+run-name: Art Manager ${{ inputs.version || 'CI' }} - ${{ github.ref_name }} - ${{ inputs.mode || 'check' }}
+
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: 'check = scoped checks; candidate = full tests + ZIP; release = full tests + draft Release (main only)'
+        type: choice
+        options: [check, candidate, release]
+        default: check
+      version:
+        description: 'For candidate/release: exact version from CMakeLists.txt (including suffix)'
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.mode || 'check' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  build:
-    # Scoped cosmetic branch has its own Desktop-only build; other branches keep full CI.
-    if: github.head_ref != 'ui-47-mr-uds'
-    runs-on: windows-latest
+  prepare:
+    name: Plan and validate CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      profile: ${{ steps.plan.outputs.profile }}
+      package: ${{ steps.plan.outputs.package }}
+      version: ${{ steps.plan.outputs.version }}
+      tests: ${{ steps.plan.outputs.tests }}
+      regex: ${{ steps.plan.outputs.regex }}
     steps:
       - uses: actions/checkout@v4
-      - name: Validate candidate version against the application and artifact
-        shell: pwsh
-        run: |
-          $cmake = Get-Content 'CMakeLists.txt' -Raw
-          if ($cmake -notmatch 'project\(ArrangerManager VERSION 0\.3\.1 LANGUAGES C CXX\)' -or
-              $cmake -notmatch 'set\(ARRANGER_MANAGER_VERSION_SUFFIX "-Upd2-fix3"\)') {
-            throw "CMake version differs from Actions run/artifact version 0.3.1-Upd2-fix3"
-          }
-          $application = Get-Content 'src/HubApplication.cpp' -Raw
-          if ($application -notmatch 'return ARRANGER_MANAGER_VERSION;') {
-            throw 'Desktop version must come from the CMake compile definition'
-          }
-      - name: Configure
-        run: cmake -S . -B build
-      - name: Build tests
-        run: cmake --build build --config Release --target TodayPlanningTests WorkspacePortableTests WorkspaceTemplateTests ArrangementTagTests SongSnapshotTests SongCatalogTests WorkspaceTests WorkspaceNavigationTests BlockEditorTests GeneralTaskTests TaskDomainTests TaskTreeUiTests WorkspaceTaskViewsTests --parallel 2
-      - name: Test reader, catalog, workspace and tasks
-        run: ctest --test-dir build -C Release --output-on-failure
-      - name: Capture task table preview
-        shell: pwsh
-        run: |
-          $env:ARRANGER_UI_PREVIEW = "1"
-          ./build/TaskTreeUiTests_artefacts/Release/TaskTreeUiTests.exe
-      - name: Build standalone desktop (Studio Pro plug-ins retired)
-        run: cmake --build build --config Release --target ArrangerManagerDesktop --parallel 2
-      - name: Prepare package and version manifest
-        shell: pwsh
-        run: |
-          $cmake = Get-Content 'CMakeLists.txt' -Raw
-          $baseVersion = [regex]::Match($cmake, 'project\(ArrangerManager VERSION (\d+\.\d+\.\d+)').Groups[1].Value
-          $suffix = [regex]::Match($cmake, 'set\(ARRANGER_MANAGER_VERSION_SUFFIX "([^"]+)"\)').Groups[1].Value
-          $version = "$baseVersion$suffix"
-          if ($version -ne '0.3.1-Upd2-fix3') { throw "Version mismatch: $version" }
-          $packageDir = "package/Arranger Manager $version"
-          New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
-          Copy-Item -Force "build/ArrangerManagerDesktop_artefacts/Release/Arranger Manager.exe" $packageDir
-          # Preview is optional; the native UI snapshot test may write to its runner working directory.
-          $preview = Get-ChildItem -Path '.' -Filter 'task-table-compact.png' -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($null -ne $preview) {
-            Copy-Item -Force $preview.FullName $packageDir
-          } else {
-            Write-Host 'Optional preview was not found; Desktop package remains valid.'
-          }
-          # Resolve preview sources before writing to the package; never enumerate
-          # the destination while copying (Copy-Item cannot copy a file to itself).
-          foreach ($name in @('template-editor.png', 'template-create.png', 'task-properties.png', 'subtask-properties.png', 'task-calendar.png', 'calendar-sidebar.png')) {
-            $source = Get-Item -LiteralPath $name -ErrorAction SilentlyContinue
-            if ($null -eq $source) { $source = Get-Item -LiteralPath "build/$name" -ErrorAction SilentlyContinue }
-            if ($null -ne $source) { Copy-Item -LiteralPath $source.FullName -Destination $packageDir -Force }
-          }
-          Copy-Item -Force "docs/TEMPLATES-67.md" $packageDir
-          Copy-Item -Force "docs/PORTABILITY-68.md" $packageDir
-          Copy-Item -Force "docs/TODAY-38.md" $packageDir
-          Copy-Item -Force "docs/LEGACY-RETIREMENT-7.md" $packageDir
-          Copy-Item -Force "docs/WORKSPACE-0.1e-DECISIONS.md" $packageDir
-          [ordered]@{
-            component = "Arranger Manager"
-            version = $version
-            commit = "${{ github.sha }}"
-            issue = 38
-          } | ConvertTo-Json | Set-Content -Encoding utf8 "$packageDir/version.json"
-      - uses: actions/upload-artifact@v4
         with:
-          name: Arranger-Manager-0.3.1-Upd2-fix3-Windows-App
-          path: package
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate workflow syntax (pinned actionlint)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/actionlint"
+          cd "$RUNNER_TEMP/actionlint"
+          gh release download v1.7.12 --repo rhysd/actionlint --pattern actionlint_1.7.12_linux_amd64.tar.gz
+          echo '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  actionlint_1.7.12_linux_amd64.tar.gz' | sha256sum --check
+          tar -xzf actionlint_1.7.12_linux_amd64.tar.gz actionlint
+          cd "$GITHUB_WORKSPACE"
+          "$RUNNER_TEMP/actionlint/actionlint" -shellcheck= .github/workflows/*.yml
+      - name: Policy regression tests
+        run: python tools/ci/test_policy.py
+      - name: Plan checks (unknown paths require full tests)
+        id: plan
+        env:
+          CI_MODE: ${{ inputs.mode || 'check' }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+          EXPECTED_VERSION: ${{ inputs.version }}
+        run: |
+          base="$BASE_SHA"
+          if [ -z "$base" ] || [ "$base" = '0000000000000000000000000000000000000000' ]; then
+            base=$(git rev-parse HEAD^)
+          fi
+          git diff --check "$base" "$HEAD_SHA"
+          python tools/ci/policy.py --base "$base" --head "$HEAD_SHA"
 
+  windows:
+    name: Windows tests and Desktop (${{ needs.prepare.outputs.version }}, ${{ needs.prepare.outputs.profile }})
+    needs: prepare
+    if: needs.prepare.outputs.profile != 'docs'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      CI_VERSION: ${{ needs.prepare.outputs.version }}
+      CI_TESTS: ${{ needs.prepare.outputs.tests }}
+      CI_REGEX: ${{ needs.prepare.outputs.regex }}
+      CI_PACKAGE: ${{ needs.prepare.outputs.package }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # Cache only dependency sources, never test results, binaries or build trees.
+      - uses: actions/cache@v4
+        with:
+          path: .ci-deps/JUCE
+          key: juce-source-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
+      - name: Fetch pinned JUCE sources on cache miss
+        run: |
+          if (!(Test-Path .ci-deps/JUCE/CMakeLists.txt)) {
+            $cmake = Get-Content CMakeLists.txt -Raw
+            $tag = [regex]::Match($cmake, 'FetchContent_Declare\(JUCE .* GIT_TAG ([\w.-]+) GIT_SHALLOW TRUE\)').Groups[1].Value
+            if (!$tag) { throw 'Cannot determine pinned JUCE version' }
+            git clone --depth 1 --branch $tag https://github.com/juce-framework/JUCE.git .ci-deps/JUCE
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: Configure and verify registered test inventory
+        run: |
+          cmake -S . -B build "-DFETCHCONTENT_SOURCE_DIR_JUCE=$pwd/.ci-deps/JUCE"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/ci/policy.py --verify-ctest build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build selected tests
+        run: |
+          $targets = $env:CI_TESTS.Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
+          if (!$targets.Count) { throw 'Empty test selection' }
+          cmake --build build --config Release --target $targets --parallel 2
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run selected tests once (including native UI evidence)
+        run: ctest --test-dir build -C Release -R "$env:CI_REGEX" --output-on-failure --no-tests=error --timeout 120 --output-junit test-results.xml
+      - name: Build Desktop only after tests pass
+        run: cmake --build build --config Release --target ArrangerManagerDesktop --parallel 2
+      - name: Package verified full-test candidate
+        if: env.CI_PACKAGE == 'true'
+        run: python tools/ci/package.py
+      - name: Upload candidate
+        if: env.CI_PACKAGE == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Arranger-Manager-${{ env.CI_VERSION }}-Windows-App
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+      - name: Preserve diagnostics even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Arranger-Manager-${{ env.CI_VERSION }}-checks-${{ github.run_id }}
+          path: |
+            build/Testing/Temporary/LastTest.log
+            build/test-results.xml
+            build/CMakeFiles/CMakeConfigureLog.yaml
+            build/*.png
+          if-no-files-found: warn
+          retention-days: 7
+
+  gate:
+    name: CI Gate
+    needs: [prepare, windows]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require success, or an intentional docs-only Windows skip
+        env:
+          PLAN_RESULT: ${{ needs.prepare.result }}
+          WINDOWS_RESULT: ${{ needs.windows.result }}
+          PROFILE: ${{ needs.prepare.outputs.profile }}
+        run: |
+          test "$PLAN_RESULT" = success
+          if [ "$PROFILE" = docs ]; then
+            test "$WINDOWS_RESULT" = skipped
+          else
+            test "$WINDOWS_RESULT" = success
+          fi
+
+  release:
+    name: Draft Release (${{ needs.prepare.outputs.version }})
+    needs: [prepare, windows, gate]
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.mode == 'release' &&
+      github.ref == 'refs/heads/main' && needs.prepare.outputs.profile == 'full' &&
+      needs.prepare.outputs.package == 'true' && needs.windows.result == 'success' &&
+      needs.gate.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Arranger-Manager-${{ env.VERSION }}-Windows-App
+          path: dist
+      - name: Verify exact-run package and create draft (never overwrite a release)
+        run: |
+          cd dist
+          sha256sum --check *.sha256
+          # Refuse an existing tag, whether or not a Release already exists.
+          if gh api "repos/$GH_REPO/git/ref/tags/v$VERSION" >/dev/null 2>&1; then
+            echo 'Tag already exists; refusing to replace an existing version.' >&2
+            exit 1
+          fi
+          gh release create "v$VERSION" ./*.zip ./*.sha256 \
+            --draft --target "$GITHUB_SHA" --title "Art Manager $VERSION" \
+            --notes "Full Windows test gate passed for $GITHUB_SHA. Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. User acceptance and publication remain manual."
