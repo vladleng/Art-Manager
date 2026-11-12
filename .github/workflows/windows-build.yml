@@ -191,8 +191,9 @@ jobs:
           cd dist
           sha256sum --check *.sha256
           # Refuse an existing tag, whether or not a Release already exists.
-          if gh api "repos/$GH_REPO/git/ref/tags/v$VERSION" >/dev/null 2>&1; then
-            echo 'Tag already exists; refusing to replace an existing version.' >&2
+          matches=$(gh api "repos/$GH_REPO/git/matching-refs/tags/v$VERSION" --jq 'length')
+          if [ "$matches" != 0 ]; then
+            echo 'Tag or version-prefixed tag already exists; refusing to replace an existing version.' >&2
             exit 1
           fi
           gh release create "v$VERSION" ./*.zip ./*.sha256 \
