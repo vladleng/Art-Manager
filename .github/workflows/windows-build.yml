@@ -119,6 +119,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run selected tests once (including native UI evidence)
         run: ctest --test-dir build -C Release -R "$env:CI_REGEX" --output-on-failure --no-tests=error --timeout 120 --output-junit test-results.xml
+      - name: Reject missing, skipped or disabled selected tests
+        run: python tools/ci/policy.py --verify-report build/test-results.xml
       - name: Build Desktop only after tests pass
         run: cmake --build build --config Release --target ArrangerManagerDesktop --parallel 2
       - name: Package verified full-test candidate

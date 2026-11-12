@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[2]
 UI_FILES = {"src/TaskTree.cpp", "src/TaskTree.h", "src/TaskTreeRows.h",
@@ -54,12 +55,34 @@ def plan(paths, event, mode, ref):
             "package": event == "workflow_dispatch" and mode in ("candidate", "release")}
 
 
+def validate_report(path, expected):
+    expected = set(expected)
+    cases = list(ET.parse(path).getroot().iter("testcase"))
+    if (not expected or len(cases) != len(expected)
+            or {c.attrib["name"] for c in cases} != expected
+            or any(c.find("failure") is not None or c.find("error") is not None
+                   or c.find("skipped") is not None or c.attrib.get("status", "run") != "run"
+                   for c in cases)):
+        raise ValueError("Every selected test must run exactly once, with no failure/skip/disabled")
+
+
+def changed_paths(base, head, root=ROOT):
+    result = subprocess.run(["git", "diff", "--no-renames", "--name-only", "-z", base, head],
+                            cwd=root, check=True, capture_output=True)
+    return result.stdout.decode("utf-8").strip("\0").split("\0") if result.stdout else []
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--base")
     parser.add_argument("--head")
     parser.add_argument("--verify-ctest")
+    parser.add_argument("--verify-report")
     args = parser.parse_args()
+    if args.verify_report:
+        validate_report(ROOT / args.verify_report, os.environ["CI_TESTS"].split())
+        print("All selected tests ran successfully without skips")
+        return
     if args.verify_ctest:
         result = subprocess.run(["ctest", "--test-dir", args.verify_ctest, "-C", "Release",
                                  "--show-only=json-v1"], cwd=ROOT, check=True, capture_output=True, text=True)
@@ -71,9 +94,7 @@ def main():
         return
     if not args.base or not args.head:
         parser.error("--base and --head are required for planning")
-    result = subprocess.run(["git", "diff", "--name-only", "-z", args.base, args.head],
-                            cwd=ROOT, check=True, capture_output=True)
-    paths = result.stdout.decode("utf-8").strip("\0").split("\0") if result.stdout else []
+    paths = changed_paths(args.base, args.head)
     selected = plan(paths, os.environ["GITHUB_EVENT_NAME"], os.environ.get("CI_MODE", "check"),
                     os.environ["GITHUB_REF"])
     text = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")

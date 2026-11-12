@@ -5,9 +5,7 @@ import os
 from pathlib import Path
 import shutil
 import zipfile
-import xml.etree.ElementTree as ET
-
-from policy import ROOT, inventory, version
+from policy import ROOT, inventory, version, validate_report
 
 
 def package():
@@ -16,13 +14,7 @@ def package():
     if os.environ["CI_VERSION"] != current or os.environ["CI_PACKAGE"] != "true":
         raise ValueError("Not a validated packaging run")
     expected = set(inventory(cmake))
-    report = ET.parse(ROOT / "build/test-results.xml").getroot()
-    cases = list(report.iter("testcase"))
-    if (len(cases) != len(expected) or {c.attrib["name"] for c in cases} != expected
-            or any(c.find("failure") is not None or c.find("error") is not None
-                   or c.find("skipped") is not None or c.attrib.get("status", "run") != "run"
-                   for c in cases)):
-        raise ValueError("Packaging requires all registered tests, no failures/skips")
+    validate_report(ROOT / "build/test-results.xml", expected)
     executable = ROOT / "build/ArrangerManagerDesktop_artefacts/Release/Arranger Manager.exe"
     if not executable.is_file():
         raise ValueError("Desktop executable missing")

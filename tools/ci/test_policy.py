@@ -5,6 +5,7 @@ import unittest
 import os
 import tempfile
 import sys
+import subprocess
 from unittest.mock import patch
 
 sys.path.insert(0, str(ROOT_DIR := Path(__file__).resolve().parent))
@@ -23,6 +24,31 @@ class PolicyTests(unittest.TestCase):
                       [".github/workflows/windows-build.yml"], ["CMakeLists.txt"],
                       ["README.md", "src/WorkspaceModel.h"], ["tests/NewTests.cpp"]):
             self.assertEqual(policy.profile(files), "full", files)
+
+    def test_renaming_source_to_docs_cannot_hide_source_deletion(self):
+        for old, selected in (("src/WorkspaceModel.h", "full"), ("src/TaskTree.cpp", "ui")):
+            with tempfile.TemporaryDirectory(dir=ROOT) as temporary:
+                root = Path(temporary)
+                def git(*args):
+                    result = subprocess.run(["git", "-c", "user.name=CI Fixture", "-c",
+                                             "user.email=ci@example.invalid", "-c", "commit.gpgsign=false",
+                                             *args], cwd=root, capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    return result
+                git("init")
+                source = root / old
+                source.parent.mkdir()
+                source.write_text("rename fixture\n" * 20, encoding="utf-8")
+                git("add", ".")
+                git("commit", "-m", "base")
+                base = git("rev-parse", "HEAD").stdout.strip()
+                (root / "docs").mkdir()
+                source.rename(root / "docs/moved.md")
+                git("add", "-A")
+                git("commit", "-m", "move")
+                paths = policy.changed_paths(base, "HEAD", root)
+                self.assertIn(old, paths)
+                self.assertEqual(policy.profile(paths), selected)
 
     def test_ui_selection_is_a_narrow_allowlist(self):
         self.assertEqual(policy.profile(["src/TaskTree.cpp", "docs/UX.md"]), "ui")
