@@ -1,3 +1,5 @@
 /build/
 /package/
+/dist/
+/.ci-deps/
 __pycache__/
