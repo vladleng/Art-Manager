@@ -291,8 +291,8 @@ juce::String DayCalendarPanel::prettyDay(const juce::String& date)
     static const char* weekdays[] = {"Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"};
     const auto w = std::chrono::weekday {arranger::civilDay(date)}.c_encoding();
     const auto month = date.substring(5, 7).getIntValue();
-    return date.substring(8, 10) + " " + tr(months[month - 1])
-        + " · " + tr(weekdays[w]);
+    return date.substring(8, 10) + " " + tr(months[month - 1]) + juce::String::fromUTF8(" · ")
+        + tr(weekdays[w]);
 }
 
 void DayCalendarPanel::setDay(juce::String value)
@@ -643,7 +643,7 @@ void DayCalendarPanel::paint(juce::Graphics& g)
     {
         g.setColour(mr::colour(mr::tokens::meta));
         g.setFont(juce::FontOptions(9.5f));
-        g.drawText(juce::String(first + 1) + "–"
+        g.drawText(juce::String(first + 1) + juce::String::fromUTF8("–")
             + juce::String(juce::jmin(static_cast<int>(entries.size()), first + available))
             + "/" + juce::String(static_cast<int>(entries.size())),
             allDayArea.getRight() - 75, allDayArea.getY() + 8, 65, 15,

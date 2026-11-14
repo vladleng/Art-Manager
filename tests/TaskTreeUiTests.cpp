@@ -417,19 +417,25 @@ int main()
         "Create deep calendar label fixture");
     const auto parentCard = arranger::calendarCardLabels(dragModel, *dragModel.findTask(nested));
     const auto subCard = arranger::calendarCardLabels(dragModel, *dragModel.findTask(deepChild));
-    REQUIRE(parentCard.context == "Test page · Parent B"
-        && parentCard.compact == "Parent B › Nested task",
+    REQUIRE(parentCard.context == juce::String::fromUTF8("Test page · Parent B")
+        && parentCard.compact == juce::String::fromUTF8("Parent B › Nested task"),
         "Calendar card omitted the page or immediate parent");
-    REQUIRE(subCard.context == "Test page · Parent B › Nested task"
-        && subCard.compact == "Nested task › Edit stems"
-        && subCard.full == "Test page · Parent B › Nested task › Edit stems",
+    REQUIRE(subCard.context == juce::String::fromUTF8("Test page · Parent B › Nested task")
+        && subCard.compact == juce::String::fromUTF8("Nested task › Edit stems")
+        && subCard.full == juce::String::fromUTF8("Test page · Parent B › Nested task › Edit stems"),
         "Deep calendar subtask card omitted a parent or its own title");
+    // Raw UTF-8 literals passed to juce::String(const char*) become Latin-1
+    // mojibake ("Â·", "â€º"). Guard the actual code points, not the text.
+    REQUIRE(!subCard.context.containsChar(static_cast<juce::juce_wchar>(0x00c2))
+        && !subCard.context.containsChar(static_cast<juce::juce_wchar>(0x00e2))
+        && !subCard.full.containsChar(static_cast<juce::juce_wchar>(0x00c2)),
+        "Calendar labels contain mojibake instead of UTF-8 separators");
     const auto oldParent = dragModel.findTask(to)->properties;
     auto renamedParent = oldParent; renamedParent.name = "Rehearsal";
     REQUIRE(dragCmd.updateTask(to, oldParent, renamedParent).wasOk(),
         "Rename parent in live calendar model");
     REQUIRE(arranger::calendarCardLabels(dragModel, *dragModel.findTask(deepChild)).context
-        == "Test page · Rehearsal › Nested task",
+        == juce::String::fromUTF8("Test page · Rehearsal › Nested task"),
         "Calendar ancestry was not updated after parent rename");
     dragTree.setLookAndFeel(nullptr);
 
