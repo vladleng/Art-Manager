@@ -42,6 +42,19 @@ inline bool isCivilDateTime(const juce::String& value)
         && value.substring(14, 16).getIntValue() < 60;
 }
 
+// #39/0.4.1: the workspace wall clock currently uses the fixed
+// Asia/Krasnoyarsk offset (UTC+7). IANA timezone/DST is a separate slice.
+inline constexpr juce::int64 workspaceUtcOffsetMillis = 7 * 60 * 60 * 1000;
+inline juce::String workspaceToday(juce::int64 utcMillis)
+{
+    return juce::Time(utcMillis + workspaceUtcOffsetMillis).toISO8601(true).substring(0, 10);
+}
+inline int workspaceMinuteOfDay(juce::int64 utcMillis)
+{
+    const auto local = juce::Time(utcMillis + workspaceUtcOffsetMillis).toISO8601(true);
+    return local.substring(11, 13).getIntValue() * 60 + local.substring(14, 16).getIntValue();
+}
+
 inline juce::Result validateTaskPlan(const TaskPlan& plan)
 {
     if ((plan.start.isNotEmpty() && !isCivilDateTime(plan.start))
