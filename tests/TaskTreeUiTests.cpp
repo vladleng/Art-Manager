@@ -541,6 +541,63 @@ int main()
             "Daily calendar sidebar DPI snapshot failed");
     }
     REQUIRE(snapshot(calendar, "calendar-sidebar.png"), "Calendar sidebar preview");
+
+    // #38/0.3.2: any card already shown in "all day" can be dragged onto the
+    // hour grid. The same record gets the slot time; no copies, no owner change.
+    auto* timelineTarget = dynamic_cast<juce::DragAndDropTarget*>(
+        calendarViewport->getViewedComponent());
+    REQUIRE(timelineTarget != nullptr, "Timeline is not a drag-and-drop target");
+    const auto taskToGrid = juce::DragAndDropTarget::SourceDetails {
+        juce::var("manager-entry|task|" + nested + "|" + dragPage + "|" + to),
+        &calendar, juce::Point<int>(140, 9 * 60 + 3)};
+    REQUIRE(calendar.isInterestedInDragSource(taskToGrid),
+        "Calendar rejected a day-card task descriptor");
+    timelineTarget->itemDragMove(taskToGrid);
+    timelineTarget->itemDropped(taskToGrid);
+    REQUIRE(dragModel.tasks.size() == beforeCalendarTaskCount
+        && dragModel.findTask(nested)->plan.start == "2026-11-10T09:00"
+        && dragModel.findTask(nested)->plan.end == "2026-11-10T10:00"
+        && dragModel.findTask(nested)->ownerPageId == dragPage
+        && dragModel.findTask(nested)->parentTaskId == to,
+        "Dragging an all-day task onto the grid copied it or lost its identity");
+    juce::String gridSubtask;
+    REQUIRE(dragCmd.createSubtask(nested, "Grid subtask", gridSubtask).wasOk()
+        && dragCmd.scheduleTaskForDay(gridSubtask, {}, "2026-11-10").wasOk(),
+        "Could not prepare an all-day subtask fixture");
+    const auto countWithSubtask = dragModel.tasks.size();
+    const auto gridCard = juce::DragAndDropTarget::SourceDetails {
+        juce::var("manager-entry|task|" + gridSubtask + "|" + dragPage + "|" + nested),
+        &calendar, juce::Point<int>(140, 11 * 60 + 14)};
+    timelineTarget->itemDropped(gridCard);
+    REQUIRE(dragModel.tasks.size() == countWithSubtask
+        && dragModel.findTask(gridSubtask)->plan.start == "2026-11-10T11:15"
+        && dragModel.findTask(gridSubtask)->plan.end == "2026-11-10T12:15"
+        && dragModel.findTask(gridSubtask)->parentTaskId == nested,
+        "A nested all-day subtask did not land on a quarter-hour slot");
+    arranger::CalendarEvent travel;
+    travel.title = "Travel"; travel.start = "2026-11-10"; travel.end = "2026-11-10";
+    travel.allDay = true;
+    juce::String travelId;
+    REQUIRE(dragCmd.createCalendarEvent(travel, travelId).wasOk(),
+        "Could not create an all-day event fixture");
+    const auto eventToGrid = juce::DragAndDropTarget::SourceDetails {
+        juce::var("manager-entry|event|" + travelId), &calendar,
+        juce::Point<int>(140, 14 * 60 + 2)};
+    REQUIRE(calendar.isInterestedInDragSource(eventToGrid),
+        "Calendar rejected a day-card event descriptor");
+    timelineTarget->itemDropped(eventToGrid);
+    const auto* movedTravel = dragModel.findEvent(travelId);
+    REQUIRE(movedTravel != nullptr && !movedTravel->allDay
+        && movedTravel->start == "2026-11-10T14:00"
+        && movedTravel->end == "2026-11-10T15:00",
+        "An all-day event was not converted to the dropped slot time");
+    // Releasing the card back over "all day" must not alter a timed event.
+    const auto eventBack = juce::DragAndDropTarget::SourceDetails {
+        juce::var("manager-entry|event|" + travelId), &calendar, {55, 126}};
+    calendar.itemDropped(eventBack);
+    REQUIRE(!dragModel.findEvent(travelId)->allDay
+        && dragModel.findEvent(travelId)->start == "2026-11-10T14:00",
+        "Dropping a card back into all day changed a timed event");
     calendar.setLookAndFeel(nullptr);
 
 

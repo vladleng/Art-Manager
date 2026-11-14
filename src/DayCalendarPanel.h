@@ -80,7 +80,9 @@ private:
     void showEntryMenu(const Entry&, juce::Point<int>);
     void editEvent(const juce::String& eventId, bool allDay, int minute);
     void datePrompt();
+    void applyEntryDrop(const juce::String& description, int minute);
     void applyTaskDrop(juce::String description, int minute);
+    void beginEntryDrag(const juce::MouseEvent&);
     void moveEntry(const Entry&, int minute, bool resize);
     static juce::String dateTime(const juce::String&, int minute);
     static int snapMinute(int y);
@@ -109,6 +111,8 @@ private:
     bool allDayHover = false;
     juce::String mouseEntry;
     bool mouseEntryIsEvent = false;
+    bool dragStarted = false;
+    juce::Rectangle<int> mouseEntryBounds;
     bool resizeEntry = false;
     bool mouseStartedOnTimeline = false;
     int downY = 0, downMinute = 0;
