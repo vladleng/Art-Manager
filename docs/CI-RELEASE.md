@@ -23,7 +23,7 @@
 
 1. Actions → Windows App Build → Run workflow → нужная опубликованная ветка.
 2. `mode=candidate`, `version` — точная строка CMake, включая суффикс. Ошибка/пустой ввод останавливает запуск до Windows.
-3. Полный CTest → Desktop → проверка JUnit: каждый зарегистрированный тест ровно один раз, без failure/error/skipped/notrun/disabled → ZIP и SHA256.
+3. Полный CTest → Desktop → проверка JUnit: каждый зарегистрированный тест ровно один раз, без failure/error/skipped/notrun/disabled → ZIP и SHA256. **ZIP плоский:** exe, `version.json`, документация и previews лежат в корне архива, без вложенной папки и без вложенных архивов; проверяется распаковкой.
 4. Пакет/manifest/имя Windows job/диагностики получают ту же версию; manifest содержит SHA, run ID, список тестов и хэш EXE. ZIP хранится 14 дней.
 
 Для Release: тот же запуск, **только `main`**, `mode=release`, точная версия. Release job зависит от успешных Windows и CI Gate, скачивает пакет **из этого же run**, проверяет checksum и создаёт **draft** с target равным протестированному SHA. Существующий tag/release не перезаписывается. Не использовать `workflow_run` с произвольным скачиванием артефактов стороннего PR.

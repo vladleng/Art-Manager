@@ -34,9 +34,12 @@ def package():
     dist = ROOT / "dist"
     dist.mkdir(exist_ok=True)
     archive = dist / f"Arranger-Manager-{current}-Windows-App.zip"
+    members = sorted(directory.iterdir())
+    if any(path.suffix.lower() in {".zip", ".sha256"} for path in members):
+        raise ValueError("Release package must not contain nested archives")
     with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as out:
-        for path in sorted(directory.iterdir()):
-            out.write(path, f"{directory.name}/{path.name}")
+        for path in members:
+            out.write(path, path.name)  # Flat archive: files live at the ZIP root.
     checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
     archive.with_suffix(".sha256").write_text(f"{checksum}  {archive.name}\n", encoding="ascii")
     print(f"Packaged {current}, {len(expected)} passing tests, SHA {manifest['commit']}")

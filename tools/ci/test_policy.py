@@ -6,6 +6,7 @@ import os
 import tempfile
 import sys
 import subprocess
+import zipfile
 from unittest.mock import patch
 
 sys.path.insert(0, str(ROOT_DIR := Path(__file__).resolve().parent))
@@ -103,6 +104,15 @@ class PolicyTests(unittest.TestCase):
                 packager.package()
                 self.assertEqual(len(list((root / "dist").glob("*.zip"))), 1)
                 self.assertEqual(len(list((root / "dist").glob("*.sha256"))), 1)
+                archive = next((root / "dist").glob("*.zip"))
+                with zipfile.ZipFile(archive) as bundle:
+                    names = bundle.namelist()
+                self.assertIn("version.json", names)
+                self.assertIn("Arranger Manager.exe", names)
+                self.assertTrue(all("/" not in name and "\\" not in name for name in names),
+                    "Release ZIP must not nest files inside a folder")
+                self.assertFalse(any(name.lower().endswith((".zip", ".sha256")) for name in names),
+                    "Release ZIP must not contain nested archives")
 
     def test_release_rejects_non_main_and_invalid_modes(self):
         with self.assertRaises(ValueError):
