@@ -28,12 +28,16 @@ inline CalendarCardLabels calendarCardLabels(const WorkspaceModel& model, const 
     }
 
     const auto page = WorkspaceQueries::breadcrumb(model, task.ownerPageId);
-    const auto parentPath = parents.joinIntoString(" › ");
+    // juce::String(const char*) reads bytes as ASCII/Latin-1, so typographic
+    // separators must be explicit UTF-8 to avoid mojibake in card labels.
+    const auto separator = juce::String::fromUTF8(" › ");
+    const auto dot = juce::String::fromUTF8(" · ");
+    const auto parentPath = parents.joinIntoString(separator);
     const auto context = parentPath.isEmpty() ? page
-        : (page.isEmpty() ? parentPath : page + " · " + parentPath);
+        : (page.isEmpty() ? parentPath : page + dot + parentPath);
     const auto compact = parents.isEmpty() ? task.properties.name
-        : parents[parents.size() - 1] + " › " + task.properties.name;
-    const auto full = context.isEmpty() ? task.properties.name : context + " › " + task.properties.name;
+        : parents[parents.size() - 1] + separator + task.properties.name;
+    const auto full = context.isEmpty() ? task.properties.name : context + separator + task.properties.name;
     return {context, compact, full};
 }
 }

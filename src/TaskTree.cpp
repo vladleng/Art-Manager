@@ -228,7 +228,7 @@ void TaskTree::paintListBoxItem(int index, juce::Graphics& g, int width, int hei
                 dateCaption = task->plan.start.substring(0, 10);
                 if (task->plan.end.isNotEmpty()
                     && task->plan.end.substring(0, 10) != dateCaption)
-                    dateCaption += " – " + task->plan.end.substring(5, 10);
+                    dateCaption += juce::String::fromUTF8(" – ") + task->plan.end.substring(5, 10);
             }
             else if (task->plan.deadline.isNotEmpty())
                 dateCaption = tr("до ") + task->plan.deadline.substring(0, 10);
