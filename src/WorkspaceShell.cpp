@@ -145,6 +145,8 @@ WorkspaceShell::WorkspaceShell(arranger::WorkspaceModel& data,
         {
             if (viewKey == "task:" + id)
                 if (const auto* task = model.findTask(id)) title.setText(task->properties.name, juce::dontSendNotification);
+            tasks.repaint();
+            if (calendarPanel) calendarPanel->refresh();
         });
     addAndMakeVisible(taskDetails.get());
 
@@ -330,8 +332,32 @@ void WorkspaceShell::select(const juce::String& key)
 void WorkspaceShell::goBack()
 {
     if (viewHistory.empty() || !flushEdits()) return;
-    auto previous = viewHistory.back();
-    viewHistory.pop_back();
+    // Skip history entries that no longer point at an editable view.
+    auto stillAvailable = [this](const juce::String& key)
+    {
+        if (key.isEmpty()) return false;
+        if (key.startsWith("task:"))
+        {
+            const auto id = key.substring(5);
+            return model.findTask(id) != nullptr
+                && !arranger::WorkspaceQueries::taskArchived(model, id);
+        }
+        if (key.startsWith("page:") || key.startsWith("pageTasks:")
+            || key.startsWith("pageBlocks:"))
+        {
+            const auto id = key.fromFirstOccurrenceOf(":", false, false);
+            return model.findPage(id) != nullptr && !arranger::WorkspaceQueries::isArchived(model, id);
+        }
+        return true;
+    };
+    juce::String previous;
+    while (!viewHistory.empty())
+    {
+        previous = viewHistory.back();
+        viewHistory.pop_back();
+        if (stillAvailable(previous)) break;
+        previous.clear();
+    }
     if (previous.isEmpty()) previous = "view:tasks";
     viewKey = previous;
     refresh();

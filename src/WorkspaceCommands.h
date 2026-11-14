@@ -284,7 +284,8 @@ public:
         if (task == nullptr) return juce::Result::fail("Only active general tasks can be edited.");
         if (task->properties != expected) return juce::Result::fail("Task properties changed elsewhere.");
         value.name = value.name.trim();
-        if (value.name.isEmpty() || value.priority < 1 || value.priority > 4 || parseStatus(label(value.status)) == Status::unmarked)
+        // Priority 0 is the explicit "no priority" state used by the task card.
+        if (value.name.isEmpty() || value.priority < 0 || value.priority > 4 || parseStatus(label(value.status)) == Status::unmarked)
             return juce::Result::fail("Invalid task name, priority or status.");
         task->properties = std::move(value);
         return juce::Result::ok();

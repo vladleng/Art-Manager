@@ -209,6 +209,10 @@ void TaskDetails::openDateEditor()
                 if (self->changed) self->changed(self->taskId);
                 self->repaint();
             }
+            else
+            {
+                self->setStatus(result);
+            }
             return result;
         });
     juce::CallOutBox::launchAsynchronously(std::move(editor), dateRowBounds(), this);
@@ -247,6 +251,7 @@ juce::Result TaskDetails::flush()
             if (result.failed()) return result;
             baseline = values;
             if (changed) changed(id);
+            repaint(); // property rows read the model directly
         }
     }
     auto saved = description.flush(); if (saved.wasOk()) saved = checkpoints.flush(); setStatus(saved); return saved;
