@@ -731,7 +731,11 @@ juce::String DayCalendarPanel::dateTime(const juce::String& date, int minute)
 
 bool DayCalendarPanel::isInterestedInDragSource(const SourceDetails& s)
 {
-    return s.description.toString().startsWith("manager-task|");
+    const auto description = s.description.toString();
+    // Tree rows keep their original descriptor; day cards carry their own
+    // typed entry descriptor so the drop handler never guesses the record kind.
+    return description.startsWith("manager-task|")
+        || description.startsWith("manager-entry|");
 }
 
 void DayCalendarPanel::itemDragMove(const SourceDetails& s)
@@ -748,7 +752,6 @@ void DayCalendarPanel::itemDragExit(const SourceDetails&)
 
 void DayCalendarPanel::applyTaskDrop(juce::String description, int minute)
 {
-    if (before && !before()) return;
     const auto fields = juce::StringArray::fromTokens(description, "|", "");
     if (fields.size() != 4 || fields[0] != "manager-task") return;
     const auto* task = model.findTask(fields[1]);
@@ -766,7 +769,69 @@ void DayCalendarPanel::itemDropped(const SourceDetails& s)
 {
     const bool valid = allDayArea.contains(s.localPosition);
     itemDragExit(s);
-    if (valid) applyTaskDrop(s.description.toString(), -1);
+    if (valid) applyEntryDrop(s.description.toString(), -1);
+}
+
+// #38/0.3.2: any card already shown in "all day" can be dragged onto the hour
+// grid. Tasks keep their identity and owner; standalone events stay events.
+// minute=-1 means the all-day area itself, 0..1439 is a quarter-hour slot.
+void DayCalendarPanel::applyEntryDrop(const juce::String& description, int minute)
+{
+    if (before && !before()) return;
+    const auto fields = juce::StringArray::fromTokens(description, "|", "");
+    if (fields.size() == 4 && fields[0] == "manager-task")
+    {
+        applyTaskDrop(description, minute);
+        return;
+    }
+    if (fields.size() < 3 || fields[0] != "manager-entry") return;
+    if (fields[1] == "event")
+    {
+        if (fields.size() != 3 || minute < 0) return;
+        const auto* event = model.findEvent(fields[2]);
+        if (!event || event->archivedAt.isNotEmpty()) return;
+        auto updated = *event;
+        updated.allDay = false;
+        updated.start = dateTime(day, minute);
+        updated.end = dateTime(day, minute + 60);
+        if (updated.start.isEmpty() || updated.end.isEmpty()) return;
+        const auto expected = *event;
+        run([=](arranger::WorkspaceCommands& cmd)
+            { return cmd.updateCalendarEvent(expected, updated); });
+        return;
+    }
+    if (fields[1] != "task" || fields.size() != 5) return;
+    const auto* task = model.findTask(fields[2]);
+    if (!task || arranger::WorkspaceQueries::taskArchived(model, fields[2])
+        || task->ownerPageId != fields[3]
+        || (task->parentTaskId.isEmpty() ? juce::String("root") : task->parentTaskId) != fields[4])
+        return;
+    if (minute < 0 && task->plan.start.length() == 10) return; // already all-day
+    const auto expected = task->plan;
+    const auto targetDay = day;
+    run([=](arranger::WorkspaceCommands& cmd)
+        { return cmd.scheduleTaskAtSlot(fields[2], expected, targetDay, minute); });
+}
+
+// Hand the card over to JUCE drag-and-drop only once the pointer leaves the
+// all-day area; movements inside it stay the existing visual reorder gesture.
+void DayCalendarPanel::beginEntryDrag(const juce::MouseEvent& e)
+{
+    if (dragStarted || mouseEntry.isEmpty()) return;
+    auto* container = juce::DragAndDropContainer::findParentDragContainerFor(this);
+    if (!container) return;
+    juce::String description;
+    if (mouseEntryIsEvent)
+        description = "manager-entry|event|" + mouseEntry;
+    else if (const auto* task = model.findTask(mouseEntry))
+        description = "manager-entry|task|" + task->id + "|" + task->ownerPageId + "|"
+            + (task->parentTaskId.isEmpty() ? juce::String("root") : task->parentTaskId);
+    else
+        return;
+    dragStarted = true;
+    const auto image = createComponentSnapshot(mouseEntryBounds);
+    const auto offset = e.getPosition() - mouseEntryBounds.getPosition();
+    container->startDragging(description, this, juce::ScaledImage(image), false, &offset);
 }
 void DayCalendarPanel::Timeline::itemDragMove(const SourceDetails& s)
 {
@@ -778,13 +843,15 @@ void DayCalendarPanel::Timeline::itemDropped(const SourceDetails& s)
 {
     const auto slot = DayCalendarPanel::snapMinute(s.localPosition.y);
     parent.itemDragExit(s);
-    parent.applyTaskDrop(s.description.toString(), slot);
+    parent.applyEntryDrop(s.description.toString(), slot);
 }
 
 void DayCalendarPanel::mouseDown(const juce::MouseEvent& e)
 {
     mouseStartedOnTimeline = false;
     mouseEntry.clear();
+    dragStarted = false;
+    mouseEntryBounds = juce::Rectangle<int>();
     dragDayTarget.clear();
     if (allDayGrip.expanded(0, 3).contains(e.getPosition()) && e.mods.isLeftButtonDown())
     {
@@ -800,6 +867,7 @@ void DayCalendarPanel::mouseDown(const juce::MouseEvent& e)
         {
             mouseEntry = it->entry.id;
             mouseEntryIsEvent = it->entry.event;
+            mouseEntryBounds = it->bounds;
             break;
         }
 }
@@ -814,8 +882,14 @@ void DayCalendarPanel::mouseDrag(const juce::MouseEvent& e)
         repaint();
         return;
     }
-    if (mouseEntry.isEmpty() || e.mods.isPopupMenu()
-        || std::abs(e.y - downDayY) < 7)
+    if (dragStarted) return;
+    if (mouseEntry.isEmpty() || e.mods.isPopupMenu()) return;
+    if (e.y > allDayArea.getBottom())
+    {
+        beginEntryDrag(e);
+        return;
+    }
+    if (std::abs(e.y - downDayY) < 7)
         return;
     dragDayTarget.clear();
     for (const auto& hit : allDayHits)
@@ -852,6 +926,7 @@ void DayCalendarPanel::mouseWheelMove(const juce::MouseEvent& e,
 
 void DayCalendarPanel::mouseUp(const juce::MouseEvent& e)
 {
+    dragStarted = false;
     if (resizingAllDay)
     {
         resizingAllDay = false;
