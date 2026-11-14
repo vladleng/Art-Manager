@@ -11,8 +11,9 @@ class TaskDetails final : public juce::Component, private juce::Timer
 {
 public:
     using Execute = std::function<juce::Result(const arranger::WorkspaceAction&)>;
-    TaskDetails(arranger::WorkspaceModel&, Execute, std::function<void(juce::String)> back,
-        std::function<void(juce::String)> archive, std::function<void(juce::String)> changed);
+    TaskDetails(arranger::WorkspaceModel&, Execute, std::function<void()> goBack,
+        std::function<void(juce::String)> openPage, std::function<void(juce::String)> archive,
+        std::function<void(juce::String)> changed);
     juce::Result bind(const juce::String&);
     juce::Result flush();
     void paint(juce::Graphics&) override;
@@ -31,9 +32,10 @@ private:
     void setStatus(const juce::Result&);
     arranger::TaskProperties fields() const;
     void showProperties();
-    void showStatusMenu();
-    void showPriorityMenu();
+    void showStatusMenu(juce::Rectangle<int> anchor);
+    void showPriorityMenu(juce::Rectangle<int> anchor);
     void openDateEditor();
+    juce::Rectangle<int> valueBounds(const Row&) const;
     juce::String statusText() const;
     juce::String priorityText() const;
     juce::String planText() const;
@@ -42,7 +44,8 @@ private:
 
     arranger::WorkspaceModel& model;
     Execute execute;
-    std::function<void(juce::String)> back, archiveTask, changed;
+    std::function<void()> back;
+    std::function<void(juce::String)> openPage, archiveTask, changed;
     juce::String taskId;
     arranger::TaskProperties baseline;
     arranger::TaskPlan planBaseline;

@@ -20,9 +20,12 @@ int statusIndex(arranger::Status value)
 }
 }
 TaskDetails::TaskDetails(arranger::WorkspaceModel& data, Execute run,
-    std::function<void(juce::String)> goBack, std::function<void(juce::String)> archive,
+    std::function<void()> goBack, std::function<void(juce::String)> openPageCallback,
+    std::function<void(juce::String)> archive,
     std::function<void(juce::String)> notifyChanged)
-    : model(data), execute(std::move(run)), back(std::move(goBack)), archiveTask(std::move(archive)), changed(std::move(notifyChanged)),
+    : model(data), execute(std::move(run)), back(std::move(goBack)),
+      openPage(std::move(openPageCallback)), archiveTask(std::move(archive)),
+      changed(std::move(notifyChanged)),
       checkpoints(model, execute, [this] { return flush().wasOk(); }, {},
           [this] { bind(taskId); if (changed) changed(taskId); },
           [this](juce::String id) { if (flush().wasOk()) archiveTask(id); })
@@ -90,7 +93,7 @@ TaskDetails::TaskDetails(arranger::WorkspaceModel& data, Execute run,
     owner.onClick = [this]
     {
         if (flush().failed()) return;
-        if (const auto* task = model.findTask(taskId)) back(task->ownerPageId);
+        if (back) back();
     };
     archiveButton.onClick = [this] { if (flush().wasOk()) archiveTask(taskId); };
 }
@@ -148,7 +151,7 @@ juce::String TaskDetails::progressText() const
     const auto progress = arranger::WorkspaceQueries::taskProgress(*task);
     return juce::String(progress.first) + "/" + juce::String(progress.second);
 }
-void TaskDetails::showStatusMenu()
+void TaskDetails::showStatusMenu(juce::Rectangle<int> anchor)
 {
     if (const auto* task = model.findTask(taskId))
     {
@@ -157,7 +160,7 @@ void TaskDetails::showStatusMenu()
             menu.addItem(index + 1, tr(statusNames[index]), true,
                 task->properties.status == statuses[index]);
         juce::Component::SafePointer<TaskDetails> safe(this);
-        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this),
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea(localAreaToGlobal(anchor)),
             [safe](int selected)
             {
                 if (safe == nullptr || selected <= 0) return;
@@ -166,7 +169,7 @@ void TaskDetails::showStatusMenu()
             });
     }
 }
-void TaskDetails::showPriorityMenu()
+void TaskDetails::showPriorityMenu(juce::Rectangle<int> anchor)
 {
     if (const auto* task = model.findTask(taskId))
     {
@@ -176,7 +179,7 @@ void TaskDetails::showPriorityMenu()
         menu.addSeparator();
         menu.addItem(9, tr("Без приоритета"), true, task->properties.priority <= 0);
         juce::Component::SafePointer<TaskDetails> safe(this);
-        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this),
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea(localAreaToGlobal(anchor)),
             [safe](int selected)
             {
                 if (safe == nullptr || selected <= 0) return;
@@ -211,10 +214,23 @@ void TaskDetails::openDateEditor()
     juce::CallOutBox::launchAsynchronously(std::move(editor), dateRowBounds(), this);
 }
 
+juce::Rectangle<int> TaskDetails::valueBounds(const Row& row) const
+{
+    const int x = row.bounds.getX() + 170;
+    switch (row.kind)
+    {
+        case RowKind::status:   return { x, row.bounds.getCentreY() - 11, 130, 22 };
+        case RowKind::priority: return { x, row.bounds.getCentreY() - 11, 92, 22 };
+        case RowKind::date:
+        case RowKind::page:     return { x, row.bounds.getY(), row.bounds.getWidth() - 175, row.bounds.getHeight() };
+        case RowKind::progress: return { x, row.bounds.getY(), 170, row.bounds.getHeight() };
+    }
+    return row.bounds;
+}
 juce::Rectangle<int> TaskDetails::dateRowBounds() const
 {
     for (const auto& row : rows)
-        if (row.kind == RowKind::date) return row.bounds;
+        if (row.kind == RowKind::date) return valueBounds(row);
     return getLocalBounds();
 }
 juce::Result TaskDetails::flush()
@@ -297,8 +313,7 @@ void TaskDetails::paint(juce::Graphics& g)
                 icon(row, juce::String::fromUTF8("●"), mr::statusInk(status));
                 label(row, tr("Статус"));
                 const auto value = statusText();
-                const auto chip = juce::Rectangle<int>(row.bounds.getX() + 170, row.bounds.getCentreY() - 11,
-                    130, 22);
+                const auto chip = valueBounds(row);
                 g.setColour(mr::statusFill(status));
                 g.fillRoundedRectangle(chip.toFloat(), 11.0f);
                 g.setColour(mr::statusInk(status));
@@ -315,13 +330,28 @@ void TaskDetails::paint(juce::Graphics& g)
                     row.bounds.getWidth() - 175, row.bounds.getHeight(), juce::Justification::centredLeft);
                 break;
             case RowKind::priority:
+            {
                 icon(row, juce::String::fromUTF8("!"), mr::colour(mr::tokens::meta));
                 label(row, tr("Приоритет"));
-                g.setColour(mr::colour(mr::tokens::bright));
-                g.setFont(juce::FontOptions(12.5f));
-                g.drawText(priorityText(), row.bounds.getX() + 170, row.bounds.getY(),
-                    160, row.bounds.getHeight(), juce::Justification::centredLeft);
+                const auto* task = model.findTask(taskId);
+                const int priority = task == nullptr ? 0 : task->properties.priority;
+                if (priority > 0)
+                {
+                    const auto pill = valueBounds(row).withWidth(34);
+                    g.setColour(mr::priorityFill(priority));
+                    g.fillRoundedRectangle(pill.toFloat(), 11.0f);
+                    g.setColour(mr::colour(mr::tokens::bright));
+                    g.setFont(juce::FontOptions(11.5f, juce::Font::bold));
+                    g.drawText("P" + juce::String(priority), pill, juce::Justification::centred);
+                }
+                else
+                {
+                    g.setColour(mr::colour(mr::tokens::muted));
+                    g.setFont(juce::FontOptions(12.5f));
+                    g.drawText(tr("Нет"), valueBounds(row), juce::Justification::centredLeft);
+                }
                 break;
+            }
             case RowKind::page:
             {
                 icon(row, juce::String::fromUTF8("▤"), mr::colour(mr::tokens::meta));
@@ -403,21 +433,29 @@ void TaskDetails::mouseDown(const juce::MouseEvent& event)
         {
             if (safe == nullptr) return;
             if (item == 1) safe->save.onClick(); else if (item == 2) safe->reloadProperties.onClick();
-            else if (item == 3) safe->owner.onClick(); else if (item == 4) safe->archiveButton.onClick();
+            else if (item == 3)
+            {
+                if (safe->flush().wasOk())
+                    if (const auto* task = safe->model.findTask(safe->taskId))
+                        if (safe->openPage) safe->openPage(task->ownerPageId);
+            }
+            else if (item == 4) safe->archiveButton.onClick();
         });
         return;
     }
     for (const auto& row : rows)
     {
-        if (!row.bounds.contains(event.getPosition())) continue;
+        const auto value = valueBounds(row);
+        if (value.isEmpty() || !value.contains(event.getPosition())) continue;
         switch (row.kind)
         {
-            case RowKind::status: showStatusMenu(); break;
+            case RowKind::status: showStatusMenu(value); break;
             case RowKind::date: openDateEditor(); break;
-            case RowKind::priority: showPriorityMenu(); break;
+            case RowKind::priority: showPriorityMenu(value); break;
             case RowKind::page:
                 if (flush().wasOk())
-                    if (const auto* task = model.findTask(taskId)) back(task->ownerPageId);
+                    if (const auto* task = model.findTask(taskId))
+                        if (openPage) openPage(task->ownerPageId);
                 break;
             case RowKind::progress: break;
         }
