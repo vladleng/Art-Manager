@@ -49,8 +49,8 @@ inline bool isCivilDateTime(const juce::String& value)
 inline constexpr juce::int64 workspaceUtcOffsetMillis = 7 * 60 * 60 * 1000;
 inline juce::String workspaceToday(juce::int64 utcMillis)
 {
-    const auto dayPoint = std::chrono::floor<std::chrono::days>(
-        std::chrono::milliseconds { utcMillis + workspaceUtcOffsetMillis });
+    const std::chrono::sys_days dayPoint { std::chrono::floor<std::chrono::days>(
+        std::chrono::milliseconds { utcMillis + workspaceUtcOffsetMillis }) };
     const std::chrono::year_month_day date (dayPoint);
     return juce::String(static_cast<int>(date.year())) + "-"
         + juce::String(static_cast<int>(static_cast<unsigned>(date.month()))).paddedLeft('0', 2) + "-"
