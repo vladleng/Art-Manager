@@ -251,9 +251,10 @@ struct WorkspaceModel
         for (const auto& task : tasks)
         {
             const auto* owner = findPage(task.ownerPageId);
+            // Priority 0 is the explicit "no priority" state (#39/0.4.2).
             if (!addId(task.id) || owner == nullptr || owner->kind != "page"
                 || task.properties.name.trim().isEmpty() || !validStatus(task.properties.status)
-                || task.properties.priority < 1 || task.properties.priority > 4)
+                || task.properties.priority < 0 || task.properties.priority > 4)
                 return fail("Invalid general task identity, owner or properties.");
             if (validateTaskPlan(task.plan).failed()) return fail("Invalid task schedule.");
             for (const auto& cp : task.checkpoints)
