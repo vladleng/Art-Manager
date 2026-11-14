@@ -9,6 +9,7 @@
 #include "DayCalendarPanel.h"
 #include "WorkspaceTemplateEditor.h"
 #include <map>
+#include <vector>
 
 class WorkspaceShell final : public juce::Component, public juce::DragAndDropContainer,
     public juce::DragAndDropTarget
@@ -59,7 +60,7 @@ private:
 
     void select(const juce::String& key);
     void showDetails();
-    void goBackFromTask();
+    void goBack();
     void showPageMenu(const juce::String&, juce::Point<int>);
     void promptPage(const juce::String& parentId, const juce::String& renameId = {}, bool asNote = false);
     void showMoveMenu(const juce::String&, juce::Point<int>);
@@ -102,6 +103,7 @@ private:
     std::function<void(juce::String)> persistView;
     juce::String viewKey;
     juce::String taskReturnView; // Previous non-detail view for Back navigation.
+    std::vector<juce::String> viewHistory; // Most recent views, newest last.
     std::map<juce::String, arranger::TaskViewOptions> taskViews;
     std::function<void(juce::String)> persistTaskViews;
     bool applyingView = false;

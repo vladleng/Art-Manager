@@ -116,6 +116,17 @@ int main()
     REQUIRE(model.catalog.toJson() == catalog && model.findTask(first)->properties.status == Status::wip, "Description modified statuses/DAW");
     REQUIRE(editor.undo().wasOk() && model.findTask(first)->blocks.empty() && model.findTask(first)->checkpoints[0] == cpChanged, "Undo modified checkpoint");
     REQUIRE(editor.redo().wasOk(), "Description redo");
+    // #39/0.4.2: priority 0 is the explicit "no priority" state from the task
+    // card and must not block status changes.
+    const auto currentProps = model.findTask(first)->properties;
+    auto noPriority = currentProps; noPriority.priority = 0;
+    REQUIRE(controller.execute([&](WorkspaceCommands& c) { return c.updateTask(first, currentProps, noPriority); }).wasOk(),
+        "No-priority state rejected");
+    auto doneNoPriority = noPriority; doneNoPriority.status = Status::done;
+    REQUIRE(controller.execute([&](WorkspaceCommands& c) { return c.updateTask(first, noPriority, doneNoPriority); }).wasOk()
+        && model.findTask(first)->properties.priority == 0
+        && model.findTask(first)->properties.status == Status::done,
+        "Status change failed for a task without priority");
     REQUIRE(controller.execute([&](WorkspaceCommands& c) { return c.archiveCheckpoint(first, cp); }).wasOk(), "Archive checkpoint");
     REQUIRE(WorkspaceQueries::taskProgress(*model.findTask(first)) == std::make_pair(0, 0), "Archived checkpoint counted");
     REQUIRE(taskTreeRows(model, {ref}, expanded).size() == 2,

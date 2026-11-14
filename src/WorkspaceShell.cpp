@@ -54,7 +54,7 @@ WorkspaceShell::WorkspaceShell(arranger::WorkspaceModel& data,
     taskBack.getProperties().set("mrIconOnly", true);
     taskBack.setColour(juce::TextButton::buttonColourId, mr::colour(mr::tokens::canvas));
     taskBack.setColour(juce::TextButton::textColourOffId, mr::colour(mr::tokens::bright));
-    taskBack.onClick = [this] { goBackFromTask(); };
+    taskBack.onClick = [this] { goBack(); };
     description.setColour(juce::Label::textColourId, mr::colour(mr::tokens::meta));
     addPage.setButtonText(text("+ Страница"));
     addNote.setButtonText(text("+ Заметка"));
@@ -138,12 +138,15 @@ WorkspaceShell::WorkspaceShell(arranger::WorkspaceModel& data,
     legacySummary.setColour(juce::TextEditor::textColourId, mr::colour(mr::tokens::bright));
     legacySummary.setColour(juce::TextEditor::outlineColourId, mr::colour(mr::tokens::outline));
     taskDetails = std::make_unique<TaskDetails>(model, [this](const auto& action) { return runCommand(action); },
+        [this] { goBack(); },
         [this](juce::String id) { select("pageTasks:" + id); },
         [this](juce::String id) { archiveTask(id); },
         [this](juce::String id)
         {
             if (viewKey == "task:" + id)
                 if (const auto* task = model.findTask(id)) title.setText(task->properties.name, juce::dontSendNotification);
+            tasks.repaint();
+            if (calendarPanel) calendarPanel->refresh();
         });
     addAndMakeVisible(taskDetails.get());
 
@@ -202,7 +205,7 @@ void WorkspaceShell::resized()
     auto content = getLocalBounds().withTrimmedLeft(250)
         .withTrimmedRight(sidebar + (calendarVisible ? 6 : 0)).reduced(14);
     auto topLine = content.removeFromTop(28);
-    if (viewKey.startsWith("task:"))
+    if (!viewHistory.empty())
         taskBack.setBounds(topLine.removeFromLeft(32).reduced(2));
     else
         taskBack.setBounds({});
@@ -317,25 +320,47 @@ void WorkspaceShell::select(const juce::String& key)
         rebuilding = false;
         return;
     }
+    if (key != viewKey)
+    {
+        viewHistory.push_back(viewKey);
+        if (viewHistory.size() > 32) viewHistory.erase(viewHistory.begin());
+    }
     viewKey = key;
     refresh();
 }
 
-void WorkspaceShell::goBackFromTask()
+void WorkspaceShell::goBack()
 {
-    if (!viewKey.startsWith("task:") || !flushEdits()) return;
-    const auto* task = model.findTask(viewKey.substring(5));
-    const auto ownerId = task != nullptr ? task->ownerPageId : juce::String();
-    auto destination = arranger::viewAfterTaskBack(taskReturnView, ownerId);
-    if (destination.startsWith("page:") || destination.startsWith("pageTasks:")
-        || destination.startsWith("pageBlocks:"))
+    if (viewHistory.empty() || !flushEdits()) return;
+    // Skip history entries that no longer point at an editable view.
+    auto stillAvailable = [this](const juce::String& key)
     {
-        const auto pageId = destination.fromFirstOccurrenceOf(":", false, false);
-        if (!model.findPage(pageId) || arranger::WorkspaceQueries::isArchived(model, pageId))
-            destination = arranger::viewAfterTaskBack({}, ownerId);
+        if (key.isEmpty()) return false;
+        if (key.startsWith("task:"))
+        {
+            const auto id = key.substring(5);
+            return model.findTask(id) != nullptr
+                && !arranger::WorkspaceQueries::taskArchived(model, id);
+        }
+        if (key.startsWith("page:") || key.startsWith("pageTasks:")
+            || key.startsWith("pageBlocks:"))
+        {
+            const auto id = key.fromFirstOccurrenceOf(":", false, false);
+            return model.findPage(id) != nullptr && !arranger::WorkspaceQueries::isArchived(model, id);
+        }
+        return true;
+    };
+    juce::String previous;
+    while (!viewHistory.empty())
+    {
+        previous = viewHistory.back();
+        viewHistory.pop_back();
+        if (stillAvailable(previous)) break;
+        previous.clear();
     }
-    select(destination);
-    if (viewKey == destination) taskReturnView.clear();
+    if (previous.isEmpty()) previous = "view:tasks";
+    viewKey = previous;
+    refresh();
 }
 
 void WorkspaceShell::showDetails()
@@ -355,7 +380,7 @@ void WorkspaceShell::showDetails()
     legacySummary.setVisible(legacy);
     archive.setVisible(archivedView);
     taskDetails->setVisible(taskView);
-    taskBack.setVisible(taskView);
+    taskBack.setVisible(!viewHistory.empty());
     for (auto* component : std::initializer_list<juce::Component*>{ &title, &breadcrumb, &description }) component->setVisible(true);
     for (auto* button : { &addChild, &rename, &move, &archiveButton }) button->setVisible(false);
     blockEditor.setVisible(showBlocks);
