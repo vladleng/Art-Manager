@@ -605,6 +605,15 @@ int main()
     REQUIRE(arranger::workspaceToday(fixed) == "2026-11-14"
         && arranger::workspaceMinuteOfDay(fixed) == 7 * 60,
         "Workspace wall clock helpers drifted");
+    // Pure UTC+7 arithmetic: the result must not depend on the machine zone.
+    // (On a UTC+7 host the old toISO8601-based version applied the offset twice.)
+    REQUIRE(arranger::workspaceToday(0) == "1970-01-01"
+        && arranger::workspaceMinuteOfDay(0) == 7 * 60,
+        "Workspace wall clock depends on the machine local timezone");
+    const auto evening = static_cast<juce::int64>(1794673800000); // 2026-11-14T16:30:00Z
+    REQUIRE(arranger::workspaceToday(evening) == "2026-11-14"
+        && arranger::workspaceMinuteOfDay(evening) == 23 * 60 + 30,
+        "Workspace wall clock broke on a late-evening local time");
     const auto utcNow = juce::Time::getCurrentTime().toMilliseconds();
     calendar.setDay(arranger::workspaceToday(utcNow));
     const int visibleHeight = calendarViewport->getMaximumVisibleHeight();
