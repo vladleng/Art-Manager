@@ -44,15 +44,23 @@ inline bool isCivilDateTime(const juce::String& value)
 
 // #39/0.4.1: the workspace wall clock currently uses the fixed
 // Asia/Krasnoyarsk offset (UTC+7). IANA timezone/DST is a separate slice.
+// Do NOT use juce::Time::toISO8601 here: it formats the machine-local zone,
+// so a UTC+7 machine would get the offset applied twice.
 inline constexpr juce::int64 workspaceUtcOffsetMillis = 7 * 60 * 60 * 1000;
 inline juce::String workspaceToday(juce::int64 utcMillis)
 {
-    return juce::Time(utcMillis + workspaceUtcOffsetMillis).toISO8601(true).substring(0, 10);
+    using namespace std::chrono;
+    const auto day = floor<days>(milliseconds { utcMillis + workspaceUtcOffsetMillis });
+    const year_month_day date { day };
+    return juce::String(static_cast<int>(date.year())) + "-"
+        + juce::String(static_cast<int>(static_cast<unsigned>(date.month()))).paddedLeft('0', 2) + "-"
+        + juce::String(static_cast<int>(static_cast<unsigned>(date.day()))).paddedLeft('0', 2);
 }
 inline int workspaceMinuteOfDay(juce::int64 utcMillis)
 {
-    const auto local = juce::Time(utcMillis + workspaceUtcOffsetMillis).toISO8601(true);
-    return local.substring(11, 13).getIntValue() * 60 + local.substring(14, 16).getIntValue();
+    const auto shifted = utcMillis + workspaceUtcOffsetMillis;
+    const auto inDay = ((shifted % 86400000) + 86400000) % 86400000;
+    return static_cast<int>(inDay / 60000);
 }
 
 inline juce::Result validateTaskPlan(const TaskPlan& plan)
