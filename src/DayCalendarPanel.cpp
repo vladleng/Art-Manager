@@ -250,9 +250,7 @@ DayCalendarPanel::DayCalendarPanel(arranger::WorkspaceModel& data, Execute comma
     next.onClick = [this] { setDay(arranger::addCivilDays(day, 1)); };
     today.onClick = [this]
     {
-        const auto utc = juce::Time::getCurrentTime().toMilliseconds();
-        setDay(juce::Time(utc + static_cast<juce::int64>(7 * 3600000))
-            .toISO8601(true).substring(0, 10));
+        setDay(arranger::workspaceToday(juce::Time::getCurrentTime().toMilliseconds()));
     };
     dateButton.onClick = [this] { datePrompt(); };
     newEvent.onClick = [this]
@@ -274,12 +272,13 @@ DayCalendarPanel::DayCalendarPanel(arranger::WorkspaceModel& data, Execute comma
     viewport.setViewedComponent(&timeline, false);
     viewport.setScrollBarsShown(true, false);
     viewport.setScrollBarThickness(7);
-    viewport.setViewPosition(0, 8 * hourPixels);
+    startTimer(15000);
     refresh();
 }
 
 DayCalendarPanel::~DayCalendarPanel()
 {
+    stopTimer();
     viewport.setViewedComponent(nullptr, false);
     juce::PopupMenu::dismissAllActiveMenus();
 }
@@ -304,17 +303,14 @@ void DayCalendarPanel::setDay(juce::String value)
     if (different) allDayScrollRow = 0;
     dateButton.setButtonText(prettyDay(day));
     refresh();
+    if (different) scrollToStartOfDay();
     if (different && changed) changed();
 }
 
 void DayCalendarPanel::refresh()
 {
     if (day.isEmpty())
-    {
-        const auto utc = juce::Time::getCurrentTime().toMilliseconds();
-        day = juce::Time(utc + static_cast<juce::int64>(7 * 3600000))
-            .toISO8601(true).substring(0, 10);
-    }
+        day = arranger::workspaceToday(juce::Time::getCurrentTime().toMilliseconds());
     dateButton.setButtonText(prettyDay(day));
     const bool filtered = focus.projectId.isNotEmpty()
         || focus.status.isNotEmpty() || focus.hideDone;
@@ -345,6 +341,40 @@ void DayCalendarPanel::resized()
     viewport.setBounds(0, allDayGrip.getBottom() + 1, w,
         juce::jmax(0, getHeight() - allDayGrip.getBottom() - 1));
     timeline.setSize(juce::jmax(130, w - 7), 24 * hourPixels);
+    // The very first real layout focuses the current time; later refreshes and
+    // left-side actions must never move the user's scroll position.
+    if (!initialScrollDone && viewport.getMaximumVisibleHeight() > 0)
+    {
+        initialScrollDone = true;
+        scrollToStartOfDay();
+    }
+}
+
+// #39/0.4.1: "now" sits one third from the top, like a classic day calendar.
+// Other dates start at 08:00. The offset is never persisted: a relaunch always
+// returns to the current time, while in-session scrolls survive every refresh.
+void DayCalendarPanel::scrollToStartOfDay()
+{
+    const int visible = viewport.getMaximumVisibleHeight();
+    if (visible <= 0) return;
+    const auto utc = juce::Time::getCurrentTime().toMilliseconds();
+    const bool today = day == arranger::workspaceToday(utc);
+    const int minute = today ? arranger::workspaceMinuteOfDay(utc) : 8 * 60;
+    const int target = juce::jlimit(0,
+        juce::jmax(0, timeline.getHeight() - visible), minute - visible / 3);
+    viewport.setViewPosition(0, target);
+    lastNowMinute = today ? minute : -1;
+}
+
+void DayCalendarPanel::timerCallback()
+{
+    if (day != arranger::workspaceToday(juce::Time::getCurrentTime().toMilliseconds()))
+        return;
+    const int minute = arranger::workspaceMinuteOfDay(
+        juce::Time::getCurrentTime().toMilliseconds());
+    if (minute == lastNowMinute) return;
+    lastNowMinute = minute;
+    timeline.repaint();
 }
 
 bool DayCalendarPanel::run(const arranger::WorkspaceAction& action)
@@ -712,6 +742,17 @@ void DayCalendarPanel::paintTimeline(juce::Graphics& g)
                 juce::Justification::centredLeft, 1);
         }
         timedHits.push_back({rect, e});
+    }
+    // #39/0.4.1: classic "now" marker, visible only for the current day.
+    const auto utc = juce::Time::getCurrentTime().toMilliseconds();
+    if (day == arranger::workspaceToday(utc))
+    {
+        const int minute = arranger::workspaceMinuteOfDay(utc);
+        // MR UDS has no time token yet; keep one functional accent local.
+        const auto marker = juce::Colour(0xffe2635a);
+        g.setColour(marker.withAlpha(0.9f));
+        g.drawHorizontalLine(minute, static_cast<float>(gutter), static_cast<float>(w));
+        g.fillEllipse(static_cast<float>(gutter - 3), static_cast<float>(minute - 3), 7.0f, 7.0f);
     }
 }
 

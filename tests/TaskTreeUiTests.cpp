@@ -598,6 +598,32 @@ int main()
     REQUIRE(!dragModel.findEvent(travelId)->allDay
         && dragModel.findEvent(travelId)->start == "2026-11-10T14:00",
         "Dropping a card back into all day changed a timed event");
+
+    // #39/0.4.1: the day grid opens one third above the current time and keeps
+    // the user's scroll across refreshes caused by the left-hand workspace.
+    const auto fixed = static_cast<juce::int64>(1794614400000); // 2026-11-14T00:00:00Z
+    REQUIRE(arranger::workspaceToday(fixed) == "2026-11-14"
+        && arranger::workspaceMinuteOfDay(fixed) == 7 * 60,
+        "Workspace wall clock helpers drifted");
+    const auto utcNow = juce::Time::getCurrentTime().toMilliseconds();
+    calendar.setDay(arranger::workspaceToday(utcNow));
+    const int visibleHeight = calendarViewport->getMaximumVisibleHeight();
+    REQUIRE(visibleHeight > 0, "Daily calendar timeline viewport has no height");
+    const int nowExpected = juce::jlimit(0, juce::jmax(0, 1440 - visibleHeight),
+        arranger::workspaceMinuteOfDay(utcNow) - visibleHeight / 3);
+    const int nowActual = calendarViewport->getViewPositionY();
+    REQUIRE(juce::jmax(nowExpected - nowActual, nowActual - nowExpected) <= 1,
+        "Calendar did not focus the current time when opened");
+    calendarViewport->setViewPosition(0, 300);
+    calendar.refresh();
+    REQUIRE(calendarViewport->getViewPositionY() == 300,
+        "A workspace refresh moved the calendar scroll position");
+    calendar.setDay("2026-11-10");
+    const int eightExpected = juce::jlimit(0, juce::jmax(0, 1440 - visibleHeight),
+        8 * 60 - visibleHeight / 3);
+    const int eightActual = calendarViewport->getViewPositionY();
+    REQUIRE(juce::jmax(eightExpected - eightActual, eightActual - eightExpected) <= 1,
+        "A non-today date did not start at 08:00");
     calendar.setLookAndFeel(nullptr);
 
 

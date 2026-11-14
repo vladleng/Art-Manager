@@ -8,7 +8,8 @@
 
 // #38/0.3.1: one shared calendar day on the right, no daily task copies.
 // Both full task records and independent calendar events are resolved by ID.
-class DayCalendarPanel final : public juce::Component, public juce::DragAndDropTarget
+class DayCalendarPanel final : public juce::Component, public juce::DragAndDropTarget,
+                               private juce::Timer
 {
 public:
     using Execute = std::function<juce::Result(const arranger::WorkspaceAction&)>;
@@ -38,6 +39,7 @@ public:
     void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
 private:
+    void timerCallback() override;
     struct Entry
     {
         juce::String id, title, source, compact;
@@ -83,6 +85,7 @@ private:
     void applyEntryDrop(const juce::String& description, int minute);
     void applyTaskDrop(juce::String description, int minute);
     void beginEntryDrag(const juce::MouseEvent&);
+    void scrollToStartOfDay();
     void moveEntry(const Entry&, int minute, bool resize);
     static juce::String dateTime(const juce::String&, int minute);
     static int snapMinute(int y);
@@ -113,6 +116,8 @@ private:
     bool mouseEntryIsEvent = false;
     bool dragStarted = false;
     juce::Rectangle<int> mouseEntryBounds;
+    bool initialScrollDone = false;
+    int lastNowMinute = -1;
     bool resizeEntry = false;
     bool mouseStartedOnTimeline = false;
     int downY = 0, downMinute = 0;

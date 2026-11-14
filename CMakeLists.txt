@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(ArrangerManager VERSION 0.3.2 LANGUAGES C CXX)
+project(ArrangerManager VERSION 0.4.1 LANGUAGES C CXX)
 set(ARRANGER_MANAGER_VERSION_SUFFIX "")
 
 set(CMAKE_CXX_STANDARD 20)
